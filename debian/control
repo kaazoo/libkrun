@@ -1,0 +1,73 @@
+Source: libkrun
+Section: libs
+Priority: optional
+Maintainer: Andreas Schröder <andreas@kernelpanik.net>
+Build-Depends:
+ debhelper-compat (= 13),
+ python3-pyelftools,
+ build-essential,
+ gawk,
+ flex,
+ bison,
+ openssl,
+ libssl-dev,
+ libelf-dev,
+ libudev-dev,
+ autoconf,
+ bc,
+ cpio,
+ xz-utils,
+ fakeroot,
+ libkrunfw,
+ rust-1.80-all,
+ pkg-config,
+ libpipewire-0.3-dev,
+ clang,
+ llvm-18-dev,
+ libclang-18-dev,
+ libclang-cpp18-dev,
+ libepoxy-dev,
+ libdrm-dev,
+ libvirglrenderer-dev,
+ patchelf
+Rules-Requires-Root: no
+Vcs-Git: https://github.com/containers/libkrun.git
+Vcs-Browser: https://github.com/containers/libkrun
+Homepage: https://github.com/containers/libkrun
+
+Package: libkrun
+Section: libs
+Architecture: arm64
+Depends:
+ ${shlibs:Depends},
+ ${misc:Depends},
+Pre-Depends: ${misc:Pre-Depends}
+Multi-Arch: same
+Description: libkrun -- runtime
+ libkrun is a dynamic library that allows programs to easily acquire
+ the ability to run processes in a partially isolated environment
+ using KVM Virtualization on Linux and HVF on macOS/ARM64.
+ .
+ It integrates a VMM (Virtual Machine Monitor, the userspace side of
+ an Hypervisor) with the minimum amount of emulated devices required
+ to its purpose, abstracting most of the complexity that comes from
+ Virtual Machine management, offering users a simple C API.
+
+Package: libkrun-dev
+Section: libdevel
+Architecture: arm64
+Depends:
+ libkrun (= ${binary:Version}),
+ ${misc:Depends},
+Multi-Arch: same
+Description: libkrun -- development files
+ libkrun is a dynamic library that allows programs to easily acquire
+ the ability to run processes in a partially isolated environment
+ using KVM Virtualization on Linux and HVF on macOS/ARM64.
+ .
+ It integrates a VMM (Virtual Machine Monitor, the userspace side of
+ an Hypervisor) with the minimum amount of emulated devices required
+ to its purpose, abstracting most of the complexity that comes from
+ Virtual Machine management, offering users a simple C API.
+ .
+ Development files

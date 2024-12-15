@@ -1,0 +1,44 @@
+libkrun (1.9.8-1asahi25.24.10) oracular; urgency=medium
+
+  * Change library directory from /usr/lib64 to /usr/lib
+  * Build for oracular
+
+ -- Andreas Schröder <andreas@kernelpanik.net>  Wed, 4 Dec 2024 01:04:00 +0100
+
+libkrun (1.9.8-1asahi24.24.10) oracular; urgency=medium
+
+  * Change library directory from /usr/lib64 to /usr/lib
+  * Build for oracular
+
+ -- Andreas Schröder <andreas@kernelpanik.net>  Tue, 3 Dec 2024 08:08:00 +0100
+
+libkrun (1.9.8-1asahi22.24.04) noble; urgency=medium
+
+  * Change library directory from /usr/lib64 to /usr/lib
+  * Build for noble
+
+ -- Andreas Schröder <andreas@kernelpanik.net>  Sun, 1 Dec 2024 23:39:00 +0100
+
+libkrun (1.9.8-1asahi19.24.04) oracular; urgency=medium
+
+  * vendor all Rust dependencies
+  * build in offline mode
+  * restrict to arm64
+  * build for oracular
+
+ -- Andreas Schröder <andreas@kernelpanik.net>  Sun, 1 Dec 2024 21:23:00 +0100
+
+libkrun (1.9.8-1asahi18.24.04) noble; urgency=medium
+
+  * vendor all Rust dependencies
+  * build in offline mode
+  * restrict to arm64
+
+ -- Andreas Schröder <andreas@kernelpanik.net>  Sun, 1 Dec 2024 21:07:00 +0100
+
+libkrun (1.9.8-1asahi1.24.04) noble; urgency=medium
+
+  * Build for noble
+  * Based on tag v1.9.8
+
+ -- Andreas Schröder <andreas@kernelpanik.net>  Sat, 30 Nov 2024 21:38:00 +0100

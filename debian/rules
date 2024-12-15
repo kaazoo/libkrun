@@ -1,0 +1,33 @@
+#!/usr/bin/make -f
+# debian/rules for the Debian libkrunfw package
+# Copyright © 2024 Andreas Schröder <andreas@kernelpanik.net>
+
+# Uncomment this to turn on verbose mode.
+export DH_VERBOSE=1
+
+# for some reason MAKEFLAGS was set to "w" in sub make execution
+MAKEFLAGS += --no-print-directory
+
+# use specific rustc path
+export RUSTC:=/usr/bin/rustc-1.80
+
+# change PREFIX, LIBDIR, cargo path and enable build options
+override_dh_auto_build:
+	sed -i 's/usr\/local/usr/' Makefile
+	sed -i 's/LIBDIR_Linux = lib64$$/LIBDIR_Linux = lib/' Makefile
+	sed -i 's/cargo build/cargo-1.80 build --offline/g' Makefile
+#	sed -i 's/}/    println!("cargo:rustc-link-arg=-L\/usr\/lib64");\n}/' src/libkrun/build.rs
+	make -j12 GPU=1 VIRGL_RESOURCE_MAP2=1 BLK=1 NET=1 SND=1
+
+override_dh_auto_clean:
+	sed -i 's/cargo clean/cargo-1.80 clean/' Makefile
+	make clean
+
+override_dh_dwz:
+	true
+
+override_dh_strip:
+	true
+
+%:
+	dh $@

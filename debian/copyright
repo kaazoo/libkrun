@@ -1,0 +1,8 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: libkrun
+Source: https://github.com/containers/libkrun
+
+Files: *
+Copyright: Sergio López
+License: LGPL-2.1
+
