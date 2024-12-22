@@ -2,26 +2,76 @@
 # debian/rules for the Debian libkrunfw package
 # Copyright © 2024 Andreas Schröder <andreas@kernelpanik.net>
 
-# Uncomment this to turn on verbose mode.
-export DH_VERBOSE=1
+export CARGO = /usr/share/cargo/bin/cargo
+export CARGO_VENDOR_DIR = rust-vendor
+export CARGO_HOME = $(CURDIR)/debian/cargo_home
+
+include /usr/share/dpkg/pkg-info.mk
+include /usr/share/rustc-1.80/architecture.mk
+export DEB_HOST_RUST_TYPE DEB_HOST_GNU_TYPE
+
+
+VENDOR_TARBALL = libkrun_$(DEB_VERSION_UPSTREAM).orig-$(CARGO_VENDOR_DIR).tar.xz
+
+vendor-tarball-sanity-check:
+	if [ -e ../$(VENDOR_TARBALL) ]; \
+	  then echo "../$(VENDOR_TARBALL) already exists, bailing!"; \
+	  exit 1; \
+	fi
 
 # for some reason MAKEFLAGS was set to "w" in sub make execution
-MAKEFLAGS += --no-print-directory
+MAKEFLAGS += --no-print-directory GPU=1 VIRGL_RESOURCE_MAP2=1 BLK=1 NET=1 SND=1
 
 # use specific rustc path
-export RUSTC:=/usr/bin/rustc-1.80
+# export RUSTC:=/usr/bin/rustc-1.80
 
-# change PREFIX, LIBDIR, cargo path and enable build options
-override_dh_auto_build:
+vendor-deps:
+	if QUILT_PATCHES=debian/patches quilt applied | grep vendor-remove-unused-deps ; then \
+		echo "Detecting patch on vendor dir applied, aborting."; \
+		exit 1; \
+	fi
+
+	rm -rf $(CARGO_VENDOR_DIR)
+	cargo vendor --manifest-path src/libkrun/Cargo.toml $(CARGO_VENDOR_DIR)
+        # Remove some crates that aren't useful for us and take up a lot of space
+	rm -r \
+	    $(CARGO_VENDOR_DIR)/winapi \
+	    $(CARGO_VENDOR_DIR)/winapi-* \
+	    $(CARGO_VENDOR_DIR)/windows-* \
+	    $(CARGO_VENDOR_DIR)/windows_* \
+	    $(CARGO_VENDOR_DIR)/libz-sys/src/zlib \
+	    $(CARGO_VENDOR_DIR)/libz-sys/src/zlib-ng \
+	    $(CARGO_VENDOR_DIR)/curl-sys/curl \
+	    $(CARGO_VENDOR_DIR)/schannel \
+
+	# lintian: source-contains-prebuilt-windows-binary
+	rm -r \
+	    $(CARGO_VENDOR_DIR)/libloading/tests/nagisa32.dll \
+	    $(CARGO_VENDOR_DIR)/libloading/tests/nagisa64.dll \
+
+	# Remove the checksum files to allow us to patch crates to remove extraneous dependencies
+	for crate in $(CARGO_VENDOR_DIR)/*; do \
+	        sed -i 's/^{"files":.*"package":"\([a-z0-9]\+\)"}$$/{"files":{},"package":"\1"}/' $$crate/.cargo-checksum.json; \
+	done
+	# Cleanup temp files
+	rm -rf $(CARGO_HOME)
+
+vendor-tarball: vendor-tarball-sanity-check vendor-deps
+	tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner --pax-option=exthdr.name=%d/PaxHeaders/%f,delete=atime,delete=ctime -caf ../$(VENDOR_TARBALL) $(CARGO_VENDOR_DIR)
+
+%:
+	dh $@
+
+override_dh_auto_configure:
+	# Prepare vendored rust dependencies
+	DEB_CARGO_CRATE=libkrun_$(shell dpkg-parsechangelog --show-field Version) \
+	$(CARGO) prepare-debian $(CARGO_VENDOR_DIR)
+	/usr/share/cargo/bin/dh-cargo-vendored-sources
+
+	# change PREFIX, LIBDIR, cargo path and enable build options
 	sed -i 's/usr\/local/usr/' Makefile
 	sed -i 's/LIBDIR_Linux = lib64$$/LIBDIR_Linux = lib/' Makefile
-	sed -i 's/cargo build/cargo-1.80 build --offline/g' Makefile
-#	sed -i 's/}/    println!("cargo:rustc-link-arg=-L\/usr\/lib64");\n}/' src/libkrun/build.rs
-	make -j12 GPU=1 VIRGL_RESOURCE_MAP2=1 BLK=1 NET=1 SND=1
-
-override_dh_auto_clean:
-	sed -i 's/cargo clean/cargo-1.80 clean/' Makefile
-	make clean
+	dh_auto_configure
 
 override_dh_dwz:
 	true
@@ -29,5 +79,6 @@ override_dh_dwz:
 override_dh_strip:
 	true
 
-%:
-	dh $@
+override_dh_clean:
+	dh_clean
+	rm -rf $(CARGO_HOME)

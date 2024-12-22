@@ -1,0 +1,19 @@
+From: Tobias Heider <me@tobhe.de>
+Date: Sun, 22 Dec 2024 16:07:13 +0100
+Subject: Exclude rust-vendor from workspace
+
+---
+ Cargo.toml | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/Cargo.toml b/Cargo.toml
+index a8da0b5..a0f9591 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -1,5 +1,6 @@
+ [workspace]
+ members = ["src/libkrun"]
++exclude = ["rust-vendor"]
+ resolver = "2"
+ 
+ [profile.dev]

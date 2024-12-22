@@ -1,0 +1,215 @@
+From: Tobias Heider <me@tobhe.de>
+Date: Mon, 23 Dec 2024 23:11:16 +0100
+Subject: Remove the Windows-specific dependencies on some vendored crates
+
+---
+ rust-vendor/atty/Cargo.toml           |  3 ---
+ rust-vendor/chrono/Cargo.toml         |  9 ---------
+ rust-vendor/curl-sys/Cargo.toml       |  7 -------
+ rust-vendor/curl/Cargo.toml           | 11 -----------
+ rust-vendor/dirs-sys/Cargo.toml       |  9 ---------
+ rust-vendor/iana-time-zone/Cargo.toml |  3 ---
+ rust-vendor/libloading/Cargo.toml     |  7 -------
+ rust-vendor/socket2/Cargo.toml        | 10 ----------
+ rust-vendor/termcolor/Cargo.toml      |  3 ---
+ rust-vendor/vm-memory/Cargo.toml      |  7 -------
+ rust-vendor/yansi-term/Cargo.toml     |  3 ---
+ src/rutabaga_gfx/Cargo.toml           |  3 ---
+ 12 files changed, 75 deletions(-)
+
+diff --git a/rust-vendor/atty/Cargo.toml b/rust-vendor/atty/Cargo.toml
+index d6bf2d0..7cebc31 100644
+--- a/rust-vendor/atty/Cargo.toml
++++ b/rust-vendor/atty/Cargo.toml
+@@ -27,8 +27,5 @@ version = "0.1.6"
+ [target."cfg(unix)".dependencies.libc]
+ version = "0.2"
+ default-features = false
+-[target."cfg(windows)".dependencies.winapi]
+-version = "0.3"
+-features = ["consoleapi", "processenv", "minwinbase", "minwindef", "winbase"]
+ [badges.travis-ci]
+ repository = "softprops/atty"
+diff --git a/rust-vendor/chrono/Cargo.toml b/rust-vendor/chrono/Cargo.toml
+index 1971471..5a06db4 100644
+--- a/rust-vendor/chrono/Cargo.toml
++++ b/rust-vendor/chrono/Cargo.toml
+@@ -88,7 +88,6 @@ version = "1"
+ __internal_bench = []
+ alloc = []
+ clock = [
+-    "winapi",
+     "iana-time-zone",
+     "android-tzdata",
+     "now",
+@@ -125,7 +124,6 @@ wasmbind = [
+     "wasm-bindgen",
+     "js-sys",
+ ]
+-winapi = ["windows-targets"]
+ 
+ [target."cfg(all(target_arch = \"wasm32\", not(any(target_os = \"emscripten\", target_os = \"wasi\"))))".dependencies.js-sys]
+ version = "0.3"
+@@ -146,10 +144,3 @@ optional = true
+ version = "0.1.45"
+ features = ["fallback"]
+ optional = true
+-
+-[target."cfg(windows)".dependencies.windows-targets]
+-version = "0.52"
+-optional = true
+-
+-[target."cfg(windows)".dev-dependencies.windows-bindgen]
+-version = "0.56"
+diff --git a/rust-vendor/curl-sys/Cargo.toml b/rust-vendor/curl-sys/Cargo.toml
+index 565a506..b2178da 100644
+--- a/rust-vendor/curl-sys/Cargo.toml
++++ b/rust-vendor/curl-sys/Cargo.toml
+@@ -81,10 +81,3 @@ zlib-ng-compat = [
+ [target.'cfg(all(unix, not(target_os = "macos")))'.dependencies.openssl-sys]
+ version = "0.9.64"
+ optional = true
+-
+-[target.'cfg(target_env = "msvc")'.build-dependencies.vcpkg]
+-version = "0.2"
+-
+-[target."cfg(windows)".dependencies.windows-sys]
+-version = "0.52"
+-features = ["Win32_Networking_WinSock"]
+diff --git a/rust-vendor/curl/Cargo.toml b/rust-vendor/curl/Cargo.toml
+index 580f431..7ac8e91 100644
+--- a/rust-vendor/curl/Cargo.toml
++++ b/rust-vendor/curl/Cargo.toml
+@@ -144,14 +144,3 @@ optional = true
+ [target.'cfg(all(unix, not(target_os = "macos")))'.dependencies.openssl-sys]
+ version = "0.9.64"
+ optional = true
+-
+-[target.'cfg(target_env = "msvc")'.dependencies.schannel]
+-version = "0.1.13"
+-
+-[target.'cfg(target_env = "msvc")'.dependencies.windows-sys]
+-version = "0.52"
+-features = [
+-    "Win32_Foundation",
+-    "Win32_System_LibraryLoader",
+-    "Win32_Security_Cryptography",
+-]
+diff --git a/rust-vendor/dirs-sys/Cargo.toml b/rust-vendor/dirs-sys/Cargo.toml
+index 4a992ae..86aec87 100644
+--- a/rust-vendor/dirs-sys/Cargo.toml
++++ b/rust-vendor/dirs-sys/Cargo.toml
+@@ -27,12 +27,3 @@ default-features = false
+ 
+ [target."cfg(unix)".dependencies.libc]
+ version = "0.2"
+-
+-[target."cfg(windows)".dependencies.windows-sys]
+-version = "0.48.0"
+-features = [
+-    "Win32_UI_Shell",
+-    "Win32_Foundation",
+-    "Win32_Globalization",
+-    "Win32_System_Com",
+-]
+diff --git a/rust-vendor/iana-time-zone/Cargo.toml b/rust-vendor/iana-time-zone/Cargo.toml
+index 0181732..5aa5d04 100644
+--- a/rust-vendor/iana-time-zone/Cargo.toml
++++ b/rust-vendor/iana-time-zone/Cargo.toml
+@@ -69,6 +69,3 @@ version = "0.1.5"
+ 
+ [target.'cfg(target_os = "haiku")'.dependencies.iana-time-zone-haiku]
+ version = "0.1.1"
+-
+-[target.'cfg(target_os = "windows")'.dependencies.windows-core]
+-version = ">=0.50, <=0.52"
+diff --git a/rust-vendor/libloading/Cargo.toml b/rust-vendor/libloading/Cargo.toml
+index 9fa2501..3eda5a2 100644
+--- a/rust-vendor/libloading/Cargo.toml
++++ b/rust-vendor/libloading/Cargo.toml
+@@ -43,13 +43,6 @@ version = "1.1"
+ [target."cfg(unix)".dependencies.cfg-if]
+ version = "1"
+ 
+-[target."cfg(windows)".dependencies.windows-targets]
+-version = ">=0.48, <0.53"
+-
+-[target."cfg(windows)".dev-dependencies.windows-sys]
+-version = "0.52"
+-features = ["Win32_Foundation"]
+-
+ [lints.rust.unexpected_cfgs]
+ level = "warn"
+ priority = 0
+diff --git a/rust-vendor/socket2/Cargo.toml b/rust-vendor/socket2/Cargo.toml
+index d63e890..a38a474 100644
+--- a/rust-vendor/socket2/Cargo.toml
++++ b/rust-vendor/socket2/Cargo.toml
+@@ -75,13 +75,3 @@ all = []
+ 
+ [target."cfg(unix)".dependencies.libc]
+ version = "0.2.150"
+-
+-[target."cfg(windows)".dependencies.windows-sys]
+-version = "0.52"
+-features = [
+-    "Win32_Foundation",
+-    "Win32_Networking_WinSock",
+-    "Win32_System_IO",
+-    "Win32_System_Threading",
+-    "Win32_System_WindowsProgramming",
+-]
+diff --git a/rust-vendor/termcolor/Cargo.toml b/rust-vendor/termcolor/Cargo.toml
+index f90eaca..d32db67 100644
+--- a/rust-vendor/termcolor/Cargo.toml
++++ b/rust-vendor/termcolor/Cargo.toml
+@@ -35,6 +35,3 @@ name = "termcolor"
+ bench = false
+ 
+ [dev-dependencies]
+-
+-[target."cfg(windows)".dependencies.winapi-util]
+-version = "0.1.3"
+diff --git a/rust-vendor/vm-memory/Cargo.toml b/rust-vendor/vm-memory/Cargo.toml
+index 56c753e..c4dff38 100644
+--- a/rust-vendor/vm-memory/Cargo.toml
++++ b/rust-vendor/vm-memory/Cargo.toml
+@@ -83,10 +83,3 @@ xen = [
+     "bitflags",
+     "vmm-sys-util",
+ ]
+-
+-[target."cfg(windows)".dependencies.winapi]
+-version = "0.3"
+-features = [
+-    "errhandlingapi",
+-    "sysinfoapi",
+-]
+diff --git a/rust-vendor/yansi-term/Cargo.toml b/rust-vendor/yansi-term/Cargo.toml
+index 0317866..88ce8ef 100644
+--- a/rust-vendor/yansi-term/Cargo.toml
++++ b/rust-vendor/yansi-term/Cargo.toml
+@@ -36,9 +36,6 @@ version = "1.0"
+ 
+ [features]
+ derive_serde_style = ["serde"]
+-[target."cfg(target_os=\"windows\")".dependencies.winapi]
+-version = "0.3.4"
+-features = ["consoleapi", "errhandlingapi", "fileapi", "handleapi", "processenv"]
+ [badges.maintenance]
+ status = "actively-developed"
+ 
+diff --git a/src/rutabaga_gfx/Cargo.toml b/src/rutabaga_gfx/Cargo.toml
+index cabc55f..a7ed6df 100644
+--- a/src/rutabaga_gfx/Cargo.toml
++++ b/src/rutabaga_gfx/Cargo.toml
+@@ -30,9 +30,6 @@ log = "0.4"
+ [target.'cfg(unix)'.dependencies]
+ nix = "0.26.1"
+ 
+-[target.'cfg(windows)'.dependencies]
+-winapi = "0.3"
+-
+ # To build latest Vulkano, change version to git = "https:/github.com/vulkano-rs/vulkano.git"
+ # vulkano = { version = "0.31.0", optional = true }
+ 

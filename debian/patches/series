@@ -1,0 +1,4 @@
+0001-Make-cargo-binary-path-configurable.patch
+0002-Exclude-rust-vendor-from-workspace.patch
+0003-Remove-the-Windows-specific-dependencies-on-some-ven.patch
+0004-Fix-target-directory-path-it-contains-the-toolchain-.patch
