@@ -1,2 +1,2 @@
 usr/include/libkrun.h
-usr/lib/pkgconfig/libkrun.pc
+usr/lib/*/pkgconfig/libkrun.pc

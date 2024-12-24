@@ -70,7 +70,7 @@ override_dh_auto_configure:
 
 	# change PREFIX, LIBDIR, cargo path and enable build options
 	sed -i 's/usr\/local/usr/' Makefile
-	sed -i 's/LIBDIR_Linux = lib64$$/LIBDIR_Linux = lib/' Makefile
+	sed -i 's/LIBDIR_Linux = lib64$$/LIBDIR_Linux = lib\/$(DEB_HOST_MULTIARCH)/' Makefile
 	dh_auto_configure
 
 override_dh_dwz:
