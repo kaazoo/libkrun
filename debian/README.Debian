@@ -1,0 +1,100 @@
+=======
+libkrun
+=======
+
+Quirks
+======
+
+Because of the way rust dependencies are vendored maintenance of this package
+is a little special.
+
+We are roughly following the official guide to rust vendoring from:
+https://github.com/canonical/ubuntu-mir/blob/main/vendoring/Rust.md
+
+In addition it is recommended to use git-buildpackage(1) to manage patches and
+update releases from git.
+
+An orig tarball including the vendored rust dependencies can be generated via
+`./debian/rules vendor-tarball`
+
+Updating
+========
+
+Make sure your local git checkout has a remote for the ubuntu package repo and
+one for the upstream repo configured.
+Before you update it makes sense to create a patch-queue branch using
+`gbp pq import`.
+You can switch between patch-queue and regular branches using `gbp pq switch`.
+
+First fetch the new release tags from the upstream remote:
+
+```
+$ git fetch upstream
+ ...
+From https://github.com/containers/libkrun
+ * [new tag]	v1.10.0
+
+```
+
+You can use `gbp import-ref` to merge this new tag into your packaging branch:
+
+```
+$ gbp import-reg -u v1.10.0
+```
+
+After this the vendor directory will have to be regenerated to update the rust
+dependencies:
+
+```
+$ ./debian/rules vendor-dependencies
+```
+
+And the resulting rust-vendor directory might have to be committed to git so
+that we can modify it with our patches.
+
+You can then rebase the patch-queue branch onto the new base to update the
+patches and make sure they still apply:
+
+```
+$ gbp pq rebase 
+# You are now on patch-queue/ubuntu/$release branch
+```
+
+While we are there, generate a new list of vendored dependencies for d/control:
+
+```
+$ CARGO_VENDOR_DIR=rust-vendor /usr/share/cargo/bin/dh-cargo-vendored-sources
+```
+And copy the output somewhere for later.
+
+If everything went well export and commit the new patches:
+```
+$ gbp pq export
+# This takes you back to ubuntu/$release
+
+$ git add debian/patches
+$ git commit
+
+```
+
+Now update d/control with the dependency list generated previously.
+
+Finally use `gbp dch -R` to generate a changelog entry from the new git commits.
+
+# Building
+
+Generate the regular tarball and then switch to patched branch and generate the
+new vendored tarball with:
+
+```
+$ gbp export-orig
+$ gbp pq switch # to patch-queue/ubuntu/*
+$ ./debian/rules vendor-tarball
+$ gbp pq switch # back to ubuntu/*
+```
+
+It is important to generate the vendor tarball from the patched sources
+because the patches modify the rust build files to be compatible.
+
+After switching back to your main packaging branch, build using sbuild(1),
+gbp-buildpackage(1) or dpkg-buildpackage(1).
