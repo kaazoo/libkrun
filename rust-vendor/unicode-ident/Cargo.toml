@@ -13,9 +13,10 @@
 edition = "2018"
 rust-version = "1.31"
 name = "unicode-ident"
-version = "1.0.13"
+version = "1.0.18"
 authors = ["David Tolnay <dtolnay@gmail.com>"]
 build = false
+autolib = false
 autobins = false
 autoexamples = false
 autotests = false
@@ -32,17 +33,21 @@ categories = [
     "no-std",
     "no-std::no-alloc",
 ]
-license = "(MIT OR Apache-2.0) AND Unicode-DFS-2016"
+license = "(MIT OR Apache-2.0) AND Unicode-3.0"
 repository = "https://github.com/dtolnay/unicode-ident"
 
 [package.metadata.docs.rs]
-rustdoc-args = ["--generate-link-to-definition"]
+rustdoc-args = [
+    "--generate-link-to-definition",
+    "--extern-html-root-url=core=https://doc.rust-lang.org",
+    "--extern-html-root-url=alloc=https://doc.rust-lang.org",
+    "--extern-html-root-url=std=https://doc.rust-lang.org",
+]
 targets = ["x86_64-unknown-linux-gnu"]
 
 [lib]
 name = "unicode_ident"
 path = "src/lib.rs"
-doc-scrape-examples = false
 
 [[test]]
 name = "compare"
@@ -65,8 +70,7 @@ default-features = false
 version = "0.4"
 
 [dev-dependencies.rand]
-version = "0.8"
-features = ["small_rng"]
+version = "0.9"
 
 [dev-dependencies.roaring]
 version = "0.10"
@@ -76,4 +80,4 @@ version = "0.1"
 default-features = false
 
 [dev-dependencies.unicode-xid]
-version = "0.2.4"
+version = "0.2.6"

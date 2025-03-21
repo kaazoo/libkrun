@@ -10,10 +10,10 @@
 # See Cargo.toml.orig for the original contents.
 
 [package]
-edition = "2018"
-rust-version = "1.60.0"
+edition = "2021"
+rust-version = "1.70.0"
 name = "bindgen"
-version = "0.69.5"
+version = "0.71.1"
 authors = [
     "Jyun-Yan You <jyyou.tw@gmail.com>",
     "Emilio Cobos Álvarez <emilio@crisal.io>",
@@ -21,6 +21,7 @@ authors = [
     "The Servo project developers",
 ]
 build = "build.rs"
+autolib = false
 autobins = false
 autoexamples = false
 autotests = false
@@ -69,8 +70,7 @@ name = "bindgen"
 path = "lib.rs"
 
 [dependencies.annotate-snippets]
-version = "0.9.1"
-features = ["color"]
+version = "0.11.4"
 optional = true
 
 [dependencies.bitflags]
@@ -81,17 +81,20 @@ version = "0.6"
 
 [dependencies.clang-sys]
 version = "1"
-features = ["clang_6_0"]
+features = ["clang_11_0"]
+
+[dependencies.clap]
+version = "4"
+features = ["derive"]
+optional = true
+
+[dependencies.clap_complete]
+version = "4"
+optional = true
 
 [dependencies.itertools]
-version = ">=0.10,<0.13"
+version = ">=0.10,<0.14"
 default-features = false
-
-[dependencies.lazy_static]
-version = "1"
-
-[dependencies.lazycell]
-version = "1"
 
 [dependencies.log]
 version = "0.4"
@@ -104,14 +107,13 @@ optional = true
 
 [dependencies.proc-macro2]
 version = "1"
-default-features = false
 
 [dependencies.quote]
 version = "1"
 default-features = false
 
 [dependencies.regex]
-version = "1.5.1"
+version = "1.5.3"
 features = [
     "std",
     "unicode-perl",
@@ -119,7 +121,7 @@ features = [
 default-features = false
 
 [dependencies.rustc-hash]
-version = "1.0.1"
+version = "2.1.0"
 
 [dependencies.shlex]
 version = "1"
@@ -132,13 +134,11 @@ features = [
     "visit-mut",
 ]
 
-[dependencies.which]
-version = "4.2.1"
-optional = true
-default-features = false
-
 [features]
-__cli = []
+__cli = [
+    "dep:clap",
+    "dep:clap_complete",
+]
 __testing_only_extra_assertions = []
 __testing_only_libclang_16 = []
 __testing_only_libclang_9 = []
@@ -146,10 +146,13 @@ default = [
     "logging",
     "prettyplease",
     "runtime",
-    "which-rustfmt",
 ]
 experimental = ["dep:annotate-snippets"]
 logging = ["dep:log"]
 runtime = ["clang-sys/runtime"]
 static = ["clang-sys/static"]
-which-rustfmt = ["dep:which"]
+which-rustfmt = []
+
+[lints.clippy]
+
+[lints.rust]

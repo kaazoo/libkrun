@@ -50,7 +50,6 @@ ioctl_io_nr!(KVM_SET_TSS_ADDR, KVMIO, 0x47);
 /* Available with KVM_CAP_SET_IDENTITY_MAP_ADDR */
 #[cfg(target_arch = "x86_64")]
 ioctl_iow_nr!(KVM_SET_IDENTITY_MAP_ADDR, KVMIO, 0x48, u64);
-#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 ioctl_iowr_nr!(KVM_CREATE_GUEST_MEMFD, KVMIO, 0xd4, kvm_create_guest_memfd);
 /* Available with KVM_CAP_IRQCHIP */
 #[cfg(any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "s390x"))]
@@ -199,6 +198,9 @@ ioctl_iow_nr!(KVM_SET_DEBUGREGS, KVMIO, 0xa2, kvm_debugregs);
 /* Available with KVM_CAP_XSAVE */
 #[cfg(target_arch = "x86_64")]
 ioctl_ior_nr!(KVM_GET_XSAVE, KVMIO, 0xa4, kvm_xsave);
+/* Available with KVM_CAP_XSAVE2 */
+#[cfg(target_arch = "x86_64")]
+ioctl_ior_nr!(KVM_GET_XSAVE2, KVMIO, 0xcf, kvm_xsave);
 /* Available with KVM_CAP_XSAVE */
 #[cfg(target_arch = "x86_64")]
 ioctl_iow_nr!(KVM_SET_XSAVE, KVMIO, 0xa5, kvm_xsave);

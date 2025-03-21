@@ -426,7 +426,6 @@ impl VcpuFd {
     /// let kvm = Kvm::new().unwrap();
     /// let vm = kvm.create_vm().unwrap();
     /// let vcpu = vm.create_vcpu(0).unwrap();
-    /// #[cfg(target_arch = "x86_64")]
     /// let fpu = vcpu.get_fpu().unwrap();
     /// ```
     #[cfg(target_arch = "x86_64")]
@@ -457,15 +456,13 @@ impl VcpuFd {
     /// let kvm = Kvm::new().unwrap();
     /// let vm = kvm.create_vm().unwrap();
     /// let vcpu = vm.create_vcpu(0).unwrap();
-    /// #[cfg(target_arch = "x86_64")]
-    /// {
-    ///     let KVM_FPU_CWD: u16 = 0x37f;
-    ///     let fpu = kvm_fpu {
-    ///         fcw: KVM_FPU_CWD,
-    ///         ..Default::default()
-    ///     };
-    ///     vcpu.set_fpu(&fpu).unwrap();
-    /// }
+    ///
+    /// let KVM_FPU_CWD: u16 = 0x37f;
+    /// let fpu = kvm_fpu {
+    ///     fcw: KVM_FPU_CWD,
+    ///     ..Default::default()
+    /// };
+    /// vcpu.set_fpu(&fpu).unwrap();
     /// ```
     #[cfg(target_arch = "x86_64")]
     pub fn set_fpu(&self, fpu: &kvm_fpu) -> Result<()> {
@@ -499,13 +496,11 @@ impl VcpuFd {
     ///
     /// // Update the CPUID entries to disable the EPB feature.
     /// const ECX_EPB_SHIFT: u32 = 3;
-    /// {
-    ///     let entries = kvm_cpuid.as_mut_slice();
-    ///     for entry in entries.iter_mut() {
-    ///         match entry.function {
-    ///             6 => entry.ecx &= !(1 << ECX_EPB_SHIFT),
-    ///             _ => (),
-    ///         }
+    /// let entries = kvm_cpuid.as_mut_slice();
+    /// for entry in entries.iter_mut() {
+    ///     match entry.function {
+    ///         6 => entry.ecx &= !(1 << ECX_EPB_SHIFT),
+    ///         _ => (),
     ///     }
     /// }
     ///
@@ -581,18 +576,16 @@ impl VcpuFd {
     /// let kvm = Kvm::new().unwrap();
     /// let vm = kvm.create_vm().unwrap();
     /// let mut cap: kvm_enable_cap = Default::default();
-    /// if cfg!(target_arch = "x86_64") {
-    ///     // KVM_CAP_HYPERV_SYNIC needs KVM_CAP_SPLIT_IRQCHIP enabled
-    ///     cap.cap = KVM_CAP_SPLIT_IRQCHIP;
-    ///     cap.args[0] = 24;
-    ///     vm.enable_cap(&cap).unwrap();
+    /// // KVM_CAP_HYPERV_SYNIC needs KVM_CAP_SPLIT_IRQCHIP enabled
+    /// cap.cap = KVM_CAP_SPLIT_IRQCHIP;
+    /// cap.args[0] = 24;
+    /// vm.enable_cap(&cap).unwrap();
     ///
-    ///     let vcpu = vm.create_vcpu(0).unwrap();
-    ///     if kvm.check_extension(Cap::HypervSynic) {
-    ///         let mut cap: kvm_enable_cap = Default::default();
-    ///         cap.cap = KVM_CAP_HYPERV_SYNIC;
-    ///         vcpu.enable_cap(&cap).unwrap();
-    ///     }
+    /// let vcpu = vm.create_vcpu(0).unwrap();
+    /// if kvm.check_extension(Cap::HypervSynic) {
+    ///     let mut cap: kvm_enable_cap = Default::default();
+    ///     cap.cap = KVM_CAP_HYPERV_SYNIC;
+    ///     vcpu.enable_cap(&cap).unwrap();
     /// }
     /// ```
     ///
@@ -868,6 +861,61 @@ impl VcpuFd {
         Ok(xsave)
     }
 
+    /// X86 specific call that gets the current vcpu's "xsave struct" via `KVM_GET_XSAVE2`.
+    ///
+    /// See the documentation for `KVM_GET_XSAVE2` in the
+    /// [KVM API doc](https://www.kernel.org/doc/Documentation/virtual/kvm/api.txt).
+    ///
+    /// # Arguments
+    ///
+    /// * `xsave` - A mutable reference to an [`Xsave`] instance that will be populated with the
+    ///             current vcpu's "xsave struct".
+    ///
+    /// # Safety
+    ///
+    /// This function is unsafe because there is no guarantee `xsave` is allocated with enough space
+    /// to hold the entire xsave state.
+    ///
+    /// The required size can be retrieved via `KVM_CHECK_EXTENSION(KVM_CAP_XSAVE2)` and can vary
+    /// depending on features that have been dynamically enabled by `arch_prctl()`. Thus, any
+    /// features must not be enabled dynamically after the required size has been confirmed.
+    ///
+    /// If `xsave` is not large enough, `KVM_GET_XSAVE2` copies data beyond the allocated area,
+    /// possibly causing undefined behavior.
+    ///
+    /// See the documentation for dynamically enabled XSTATE features in the
+    /// [kernel doc](https://docs.kernel.org/arch/x86/xstate.html).
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # extern crate kvm_ioctls;
+    /// # extern crate kvm_bindings;
+    /// # use kvm_ioctls::{Kvm, Cap};
+    /// # use kvm_bindings::{Xsave, kvm_xsave};
+    /// let kvm = Kvm::new().unwrap();
+    /// let vm = kvm.create_vm().unwrap();
+    /// let vcpu = vm.create_vcpu(0).unwrap();
+    /// let xsave_size = vm.check_extension_int(Cap::Xsave2);
+    /// if xsave_size > 0 {
+    ///     let fam_size = xsave_size as usize - std::mem::size_of::<kvm_xsave>();
+    ///     let mut xsave = Xsave::new(fam_size).unwrap();
+    ///     unsafe { vcpu.get_xsave2(&mut xsave).unwrap() };
+    /// }
+    /// ```
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    pub unsafe fn get_xsave2(&self, xsave: &mut Xsave) -> Result<()> {
+        // SAFETY: Safe as long as `xsave` is allocated with enough space to hold the entire "xsave
+        // struct". That's why this function is unsafe.
+        let ret = unsafe {
+            ioctl_with_mut_ref(self, KVM_GET_XSAVE2(), &mut xsave.as_mut_fam_struct().xsave)
+        };
+        if ret != 0 {
+            return Err(errno::Error::last());
+        }
+        Ok(())
+    }
+
     /// X86 specific call that sets the vcpu's current "xsave struct".
     ///
     /// See the documentation for `KVM_SET_XSAVE` in the
@@ -875,7 +923,29 @@ impl VcpuFd {
     ///
     /// # Arguments
     ///
-    /// * `kvm_xsave` - xsave struct to be written.
+    /// * `xsave` - xsave struct to be written.
+    ///
+    /// # Safety
+    ///
+    /// The C `kvm_xsave` struct was extended to have a flexible array member (FAM) at the end in
+    /// Linux 5.17. The size can vary depending on features that have been dynamically enabled via
+    /// `arch_prctl()` and the required size can be retrieved via
+    /// `KVM_CHECK_EXTENSION(KVM_CAP_XSAVE2)`. That means `KVM_SET_XSAVE` may copy data beyond the
+    /// size of the traditional C `kvm_xsave` struct (i.e. 4096 bytes) now.
+    ///
+    /// It is safe if used on Linux prior to 5.17, if no XSTATE features are enabled dynamically or
+    /// if the required size is still within the traditional 4096 bytes even with dynamically
+    /// enabled features. However, if any features are enabled dynamically, it is recommended to use
+    /// `set_xsave2()` instead.
+    ///
+    /// See the documentation for dynamically enabled XSTATE features in the
+    /// [kernel doc](https://docs.kernel.org/arch/x86/xstate.html).
+    ///
+    /// Theoretically, it can be made safe by checking which features are enabled in the bit vector
+    /// of the XSTATE header and validating the required size is less than or equal to 4096 bytes.
+    /// However, to do it properly, we would need to extract the XSTATE header from the `kvm_xsave`
+    /// struct, check enabled features, retrieve the required size for each enabled feature (like
+    /// `setup_xstate_cache()` do in Linux) and calculate the total size.
     ///
     /// # Example
     ///
@@ -887,16 +957,61 @@ impl VcpuFd {
     /// let vcpu = vm.create_vcpu(0).unwrap();
     /// let xsave = Default::default();
     /// // Your `xsave` manipulation here.
-    /// vcpu.set_xsave(&xsave).unwrap();
+    /// unsafe { vcpu.set_xsave(&xsave).unwrap() };
     /// ```
     #[cfg(target_arch = "x86_64")]
-    pub fn set_xsave(&self, xsave: &kvm_xsave) -> Result<()> {
+    pub unsafe fn set_xsave(&self, xsave: &kvm_xsave) -> Result<()> {
         // SAFETY: Here we trust the kernel not to read past the end of the kvm_xsave struct.
         let ret = unsafe { ioctl_with_ref(self, KVM_SET_XSAVE(), xsave) };
         if ret != 0 {
             return Err(errno::Error::last());
         }
         Ok(())
+    }
+
+    /// Convenience function for doing `KVM_SET_XSAVE` with the FAM-enabled [`Xsave`]
+    /// instead of the pre-5.17 plain [`kvm_xsave`].
+    ///
+    /// # Arguments
+    ///
+    /// * `xsave` - A reference to an [`Xsave`] instance to be set.
+    ///
+    /// # Safety
+    ///
+    /// This function is unsafe because there is no guarantee `xsave` is properly allocated with
+    /// the size that KVM assumes.
+    ///
+    /// The required size can be retrieved via `KVM_CHECK_EXTENSION(KVM_CAP_XSAVE2)` and can vary
+    /// depending on features that have been dynamically enabled by `arch_prctl()`. Thus, any
+    /// features must not be enabled after the required size has been confirmed.
+    ///
+    /// If `xsave` is not large enough, `KVM_SET_XSAVE` copies data beyond the allocated area to
+    /// the kernel, possibly causing undefined behavior.
+    ///
+    /// See the documentation for dynamically enabled XSTATE features in the
+    /// [kernel doc](https://docs.kernel.org/arch/x86/xstate.html).
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # extern crate kvm_ioctls;
+    /// # extern crate kvm_bindings;
+    /// # use kvm_ioctls::{Kvm, Cap};
+    /// # use kvm_bindings::{Xsave, kvm_xsave};
+    /// let kvm = Kvm::new().unwrap();
+    /// let vm = kvm.create_vm().unwrap();
+    /// let vcpu = vm.create_vcpu(0).unwrap();
+    /// let xsave_size = vm.check_extension_int(Cap::Xsave2);
+    /// if xsave_size > 0 {
+    ///     let fam_size = xsave_size as usize - std::mem::size_of::<kvm_xsave>();
+    ///     let xsave = Xsave::new(fam_size).unwrap();
+    ///     // Your `xsave` manipulation here.
+    ///     unsafe { vcpu.set_xsave2(&xsave).unwrap() };
+    /// }
+    /// ```
+    #[cfg(target_arch = "x86_64")]
+    pub unsafe fn set_xsave2(&self, xsave: &Xsave) -> Result<()> {
+        self.set_xsave(&xsave.as_fam_struct_ref().xsave)
     }
 
     /// X86 specific call that returns the vcpu's current "xcrs".
@@ -1201,16 +1316,16 @@ impl VcpuFd {
     /// let vcpu = vm.create_vcpu(0).unwrap();
     ///
     /// // KVM_GET_REG_LIST on Aarch64 demands that the vcpus be initialized.
-    /// #[cfg(target_arch = "aarch64")]
-    /// {
-    ///     let mut kvi = kvm_bindings::kvm_vcpu_init::default();
-    ///     vm.get_preferred_target(&mut kvi).unwrap();
-    ///     vcpu.vcpu_init(&kvi).expect("Cannot initialize vcpu");
+    /// # #[cfg(target_arch = "aarch64")]
+    /// # {
+    /// let mut kvi = kvm_bindings::kvm_vcpu_init::default();
+    /// vm.get_preferred_target(&mut kvi).unwrap();
+    /// vcpu.vcpu_init(&kvi).expect("Cannot initialize vcpu");
     ///
-    ///     let mut reg_list = RegList::new(500).unwrap();
-    ///     vcpu.get_reg_list(&mut reg_list).unwrap();
-    ///     assert!(reg_list.as_fam_struct_ref().n > 0);
-    /// }
+    /// let mut reg_list = RegList::new(500).unwrap();
+    /// vcpu.get_reg_list(&mut reg_list).unwrap();
+    /// assert!(reg_list.as_fam_struct_ref().n > 0);
+    /// # }
     /// ```
     #[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
     pub fn get_reg_list(&self, reg_list: &mut RegList) -> Result<()> {
@@ -1246,19 +1361,16 @@ impl VcpuFd {
     /// let vm = kvm.create_vm().unwrap();
     /// let vcpu = vm.create_vcpu(0).unwrap();
     ///
-    /// #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
-    /// {
-    ///     let debug_struct = kvm_guest_debug {
-    ///         // Configure the vcpu so that a KVM_DEBUG_EXIT would be generated
-    ///         // when encountering a software breakpoint during execution
-    ///         control: KVM_GUESTDBG_ENABLE | KVM_GUESTDBG_USE_SW_BP,
-    ///         pad: 0,
-    ///         // Reset all arch-specific debug registers
-    ///         arch: Default::default(),
-    ///     };
+    /// let debug_struct = kvm_guest_debug {
+    ///     // Configure the vcpu so that a KVM_DEBUG_EXIT would be generated
+    ///     // when encountering a software breakpoint during execution
+    ///     control: KVM_GUESTDBG_ENABLE | KVM_GUESTDBG_USE_SW_BP,
+    ///     pad: 0,
+    ///     // Reset all arch-specific debug registers
+    ///     arch: Default::default(),
+    /// };
     ///
-    ///     vcpu.set_guest_debug(&debug_struct).unwrap();
-    /// }
+    /// vcpu.set_guest_debug(&debug_struct).unwrap();
     /// ```
     #[cfg(any(
         target_arch = "x86_64",
@@ -1361,6 +1473,9 @@ impl VcpuFd {
     ///
     /// # Example
     ///
+    /// Running some dummy code on x86_64 that immediately halts the vCPU. Based on
+    /// [https://lwn.net/Articles/658511/](https://lwn.net/Articles/658511/).
+    ///
     /// ```rust
     /// # extern crate kvm_ioctls;
     /// # extern crate kvm_bindings;
@@ -1371,64 +1486,64 @@ impl VcpuFd {
     /// # use kvm_bindings::{kvm_userspace_memory_region, KVM_MEM_LOG_DIRTY_PAGES};
     /// # let kvm = Kvm::new().unwrap();
     /// # let vm = kvm.create_vm().unwrap();
-    /// // This is a dummy example for running on x86 based on https://lwn.net/Articles/658511/.
-    /// #[cfg(target_arch = "x86_64")]
-    /// {
-    ///     let mem_size = 0x4000;
-    ///     let guest_addr: u64 = 0x1000;
-    ///     let load_addr: *mut u8 = unsafe {
-    ///         libc::mmap(
-    ///             null_mut(),
-    ///             mem_size,
-    ///             libc::PROT_READ | libc::PROT_WRITE,
-    ///             libc::MAP_ANONYMOUS | libc::MAP_SHARED | libc::MAP_NORESERVE,
-    ///             -1,
-    ///             0,
-    ///         ) as *mut u8
-    ///     };
     ///
-    ///     let mem_region = kvm_userspace_memory_region {
-    ///         slot: 0,
-    ///         guest_phys_addr: guest_addr,
-    ///         memory_size: mem_size as u64,
-    ///         userspace_addr: load_addr as u64,
-    ///         flags: 0,
-    ///     };
-    ///     unsafe { vm.set_user_memory_region(mem_region).unwrap() };
+    /// # #[cfg(target_arch = "x86_64")]
+    /// # {
+    /// let mem_size = 0x4000;
+    /// let guest_addr: u64 = 0x1000;
+    /// let load_addr: *mut u8 = unsafe {
+    ///     libc::mmap(
+    ///         null_mut(),
+    ///         mem_size,
+    ///         libc::PROT_READ | libc::PROT_WRITE,
+    ///         libc::MAP_ANONYMOUS | libc::MAP_SHARED | libc::MAP_NORESERVE,
+    ///         -1,
+    ///         0,
+    ///     ) as *mut u8
+    /// };
     ///
-    ///     // Dummy x86 code that just calls halt.
-    ///     let x86_code = [0xf4 /* hlt */];
+    /// let mem_region = kvm_userspace_memory_region {
+    ///     slot: 0,
+    ///     guest_phys_addr: guest_addr,
+    ///     memory_size: mem_size as u64,
+    ///     userspace_addr: load_addr as u64,
+    ///     flags: 0,
+    /// };
+    /// unsafe { vm.set_user_memory_region(mem_region).unwrap() };
     ///
-    ///     // Write the code in the guest memory. This will generate a dirty page.
-    ///     unsafe {
-    ///         let mut slice = slice::from_raw_parts_mut(load_addr, mem_size);
-    ///         slice.write(&x86_code).unwrap();
-    ///     }
+    /// // Dummy x86 code that just calls halt.
+    /// let x86_code = [0xf4 /* hlt */];
     ///
-    ///     let mut vcpu_fd = vm.create_vcpu(0).unwrap();
+    /// // Write the code in the guest memory. This will generate a dirty page.
+    /// unsafe {
+    ///     let mut slice = slice::from_raw_parts_mut(load_addr, mem_size);
+    ///     slice.write(&x86_code).unwrap();
+    /// }
     ///
-    ///     let mut vcpu_sregs = vcpu_fd.get_sregs().unwrap();
-    ///     vcpu_sregs.cs.base = 0;
-    ///     vcpu_sregs.cs.selector = 0;
-    ///     vcpu_fd.set_sregs(&vcpu_sregs).unwrap();
+    /// let mut vcpu_fd = vm.create_vcpu(0).unwrap();
     ///
-    ///     let mut vcpu_regs = vcpu_fd.get_regs().unwrap();
-    ///     // Set the Instruction Pointer to the guest address where we loaded the code.
-    ///     vcpu_regs.rip = guest_addr;
-    ///     vcpu_regs.rax = 2;
-    ///     vcpu_regs.rbx = 3;
-    ///     vcpu_regs.rflags = 2;
-    ///     vcpu_fd.set_regs(&vcpu_regs).unwrap();
+    /// let mut vcpu_sregs = vcpu_fd.get_sregs().unwrap();
+    /// vcpu_sregs.cs.base = 0;
+    /// vcpu_sregs.cs.selector = 0;
+    /// vcpu_fd.set_sregs(&vcpu_sregs).unwrap();
     ///
-    ///     loop {
-    ///         match vcpu_fd.run().expect("run failed") {
-    ///             VcpuExit::Hlt => {
-    ///                 break;
-    ///             }
-    ///             exit_reason => panic!("unexpected exit reason: {:?}", exit_reason),
+    /// let mut vcpu_regs = vcpu_fd.get_regs().unwrap();
+    /// // Set the Instruction Pointer to the guest address where we loaded the code.
+    /// vcpu_regs.rip = guest_addr;
+    /// vcpu_regs.rax = 2;
+    /// vcpu_regs.rbx = 3;
+    /// vcpu_regs.rflags = 2;
+    /// vcpu_fd.set_regs(&vcpu_regs).unwrap();
+    ///
+    /// loop {
+    ///     match vcpu_fd.run().expect("run failed") {
+    ///         VcpuExit::Hlt => {
+    ///             break;
     ///         }
+    ///         exit_reason => panic!("unexpected exit reason: {:?}", exit_reason),
     ///     }
     /// }
+    /// # }
     /// ```
     pub fn run(&mut self) -> Result<VcpuExit> {
         // SAFETY: Safe because we know that our file is a vCPU fd and we verify the return result.
@@ -2232,9 +2347,25 @@ mod tests {
         let vm = kvm.create_vm().unwrap();
         let vcpu = vm.create_vcpu(0).unwrap();
         let xsave = vcpu.get_xsave().unwrap();
-        vcpu.set_xsave(&xsave).unwrap();
+        // SAFETY: Safe because no features are enabled dynamically and `xsave` is large enough.
+        unsafe { vcpu.set_xsave(&xsave).unwrap() };
         let other_xsave = vcpu.get_xsave().unwrap();
         assert_eq!(&xsave.region[..], &other_xsave.region[..]);
+
+        let xsave_size = vm.check_extension_int(Cap::Xsave2);
+        // only if KVM_CAP_XSAVE2 is supported
+        if xsave_size > 0 {
+            let fam_size = xsave_size as usize - std::mem::size_of::<kvm_xsave>();
+            let mut xsave2 = Xsave::new(fam_size).unwrap();
+            // SAFETY: Safe because `xsave2` is allocated with enough space.
+            unsafe { vcpu.get_xsave2(&mut xsave2).unwrap() };
+            assert_eq!(
+                &xsave.region[..],
+                &xsave2.as_fam_struct_ref().xsave.region[..]
+            );
+            // SAFETY: Safe because `xsave2` is allocated with enough space.
+            unsafe { vcpu.set_xsave2(&xsave2).unwrap() };
+        }
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -2736,10 +2867,13 @@ mod tests {
             badf_errno
         );
         assert_eq!(
-            faulty_vcpu_fd
-                .set_xsave(&kvm_xsave::default())
-                .unwrap_err()
-                .errno(),
+            // SAFETY: It fails before it copies data and any features are not enabled dynamically.
+            unsafe {
+                faulty_vcpu_fd
+                    .set_xsave(&kvm_xsave::default())
+                    .unwrap_err()
+                    .errno()
+            },
             badf_errno
         );
         assert_eq!(faulty_vcpu_fd.get_xcrs().unwrap_err().errno(), badf_errno);
@@ -2870,7 +3004,7 @@ mod tests {
 
         // Don't drop the File object, or it'll notice the file it's trying to close is
         // invalid and abort the process.
-        faulty_vcpu_fd.vcpu.into_raw_fd();
+        let _ = faulty_vcpu_fd.vcpu.into_raw_fd();
     }
 
     #[test]
@@ -2916,7 +3050,7 @@ mod tests {
 
         // Don't drop the File object, or it'll notice the file it's trying to close is
         // invalid and abort the process.
-        faulty_vcpu_fd.vcpu.into_raw_fd();
+        let _ = faulty_vcpu_fd.vcpu.into_raw_fd();
     }
 
     #[test]

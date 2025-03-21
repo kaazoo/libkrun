@@ -29,14 +29,16 @@ use quote::ToTokens;
 use std::borrow::Cow;
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeSet, HashMap as StdHashMap};
-use std::iter::IntoIterator;
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::mem;
+use std::path::Path;
 
 /// An identifier for some kind of IR item.
 #[derive(Debug, Copy, Clone, Eq, PartialOrd, Ord, Hash)]
 pub(crate) struct ItemId(usize);
 
-/// Declare a newtype around `ItemId` with convesion methods.
+/// Declare a newtype around `ItemId` with conversion methods.
 macro_rules! item_id_newtype {
     (
         $( #[$attr:meta] )*
@@ -308,7 +310,7 @@ enum TypeKey {
 /// A context used during parsing and generation of structs.
 #[derive(Debug)]
 pub(crate) struct BindgenContext {
-    /// The map of all the items parsed so far, keyed off ItemId.
+    /// The map of all the items parsed so far, keyed off `ItemId`.
     items: Vec<Option<Item>>,
 
     /// Clang USR to type map. This is needed to be able to associate types with
@@ -317,7 +319,7 @@ pub(crate) struct BindgenContext {
 
     /// Maps from a cursor to the item ID of the named template type parameter
     /// for that cursor.
-    type_params: HashMap<clang::Cursor, TypeId>,
+    type_params: HashMap<Cursor, TypeId>,
 
     /// A cursor to module map. Similar reason than above.
     modules: HashMap<Cursor, ModuleId>,
@@ -328,13 +330,13 @@ pub(crate) struct BindgenContext {
     /// Current module being traversed.
     current_module: ModuleId,
 
-    /// A HashMap keyed on a type definition, and whose value is the parent ID
+    /// A `HashMap` keyed on a type definition, and whose value is the parent ID
     /// of the declaration.
     ///
     /// This is used to handle the cases where the semantic and the lexical
     /// parents of the cursor differ, like when a nested class is defined
     /// outside of the parent class.
-    semantic_parents: HashMap<clang::Cursor, ItemId>,
+    semantic_parents: HashMap<Cursor, ItemId>,
 
     /// A stack with the current type declarations and types we're parsing. This
     /// is needed to avoid infinite recursion when parsing a type like:
@@ -344,7 +346,7 @@ pub(crate) struct BindgenContext {
     /// This means effectively, that a type has a potential ID before knowing if
     /// it's a correct type. But that's not important in practice.
     ///
-    /// We could also use the `types` HashMap, but my intention with it is that
+    /// We could also use the `types` `HashMap`, but my intention with it is that
     /// only valid types and declarations end up there, and this could
     /// potentially break that assumption.
     currently_parsed_types: Vec<PartialType>,
@@ -353,7 +355,7 @@ pub(crate) struct BindgenContext {
     /// hard errors while parsing duplicated macros, as well to allow macro
     /// expression parsing.
     ///
-    /// This needs to be an std::HashMap because the cexpr API requires it.
+    /// This needs to be an `std::HashMap` because the `cexpr` API requires it.
     parsed_macros: StdHashMap<Vec<u8>, cexpr::expr::EvalResult>,
 
     /// A map with all include locations.
@@ -377,11 +379,17 @@ pub(crate) struct BindgenContext {
     /// The translation unit for parsing.
     translation_unit: clang::TranslationUnit,
 
+    /// The translation unit for macro fallback parsing.
+    fallback_tu: Option<clang::FallbackTranslationUnit>,
+
     /// Target information that can be useful for some stuff.
     target_info: clang::TargetInfo,
 
     /// The options given by the user via cli or other medium.
     options: BindgenOptions,
+
+    /// Whether an opaque array was generated
+    generated_opaque_array: Cell<bool>,
 
     /// Whether a bindgen complex was generated
     generated_bindgen_complex: Cell<bool>,
@@ -496,7 +504,7 @@ struct AllowlistedItemsTraversal<'ctx> {
     traversal: ItemTraversal<'ctx, ItemSet, Vec<ItemId>>,
 }
 
-impl<'ctx> Iterator for AllowlistedItemsTraversal<'ctx> {
+impl Iterator for AllowlistedItemsTraversal<'_> {
     type Item = ItemId;
 
     fn next(&mut self) -> Option<ItemId> {
@@ -585,10 +593,12 @@ If you encounter an error missing from this list, please file an issue or a PR!"
             collected_typerefs: false,
             in_codegen: false,
             translation_unit,
+            fallback_tu: None,
             target_info,
             options,
             generated_bindgen_complex: Cell::new(false),
             generated_bindgen_float16: Cell::new(false),
+            generated_opaque_array: Cell::new(false),
             allowlisted: None,
             blocklisted_types_implement_traits: Default::default(),
             codegen_items: None,
@@ -613,7 +623,7 @@ If you encounter an error missing from this list, please file an issue or a PR!"
         self.target_info.triple.starts_with("wasm32-")
     }
 
-    /// Creates a timer for the current bindgen phase. If time_phases is `true`,
+    /// Creates a timer for the current bindgen phase. If `time_phases` is `true`,
     /// the timer will print to stderr when it is dropped, otherwise it will do
     /// nothing.
     pub(crate) fn timer<'a>(&self, name: &'a str) -> Timer<'a> {
@@ -692,10 +702,7 @@ If you encounter an error missing from this list, please file an issue or a PR!"
         declaration: Option<Cursor>,
         location: Option<Cursor>,
     ) {
-        debug!(
-            "BindgenContext::add_item({:?}, declaration: {:?}, loc: {:?}",
-            item, declaration, location
-        );
+        debug!("BindgenContext::add_item({item:?}, declaration: {declaration:?}, loc: {location:?}");
         debug_assert!(
             declaration.is_some() ||
                 !item.kind().is_type() ||
@@ -747,8 +754,7 @@ If you encounter an error missing from this list, please file an issue or a PR!"
                 // Fortunately, we don't care about those types being
                 // duplicated, so we can just ignore them.
                 debug!(
-                    "Invalid declaration {:?} found for type {:?}",
-                    declaration,
+                    "Invalid declaration {declaration:?} found for type {:?}",
                     self.resolve_item_fallible(id)
                         .unwrap()
                         .kind()
@@ -762,10 +768,7 @@ If you encounter an error missing from this list, please file an issue or a PR!"
             } else if let Some(usr) = declaration.usr() {
                 TypeKey::Usr(usr)
             } else {
-                warn!(
-                    "Valid declaration with no USR: {:?}, {:?}",
-                    declaration, location
-                );
+                warn!("Valid declaration with no USR: {declaration:?}, {location:?}");
                 TypeKey::Declaration(declaration)
             };
 
@@ -811,15 +814,8 @@ If you encounter an error missing from this list, please file an issue or a PR!"
     }
 
     /// Add a new named template type parameter to this context's item set.
-    pub(crate) fn add_type_param(
-        &mut self,
-        item: Item,
-        definition: clang::Cursor,
-    ) {
-        debug!(
-            "BindgenContext::add_type_param: item = {:?}; definition = {:?}",
-            item, definition
-        );
+    pub(crate) fn add_type_param(&mut self, item: Item, definition: Cursor) {
+        debug!("BindgenContext::add_type_param: item = {item:?}; definition = {definition:?}");
 
         assert!(
             item.expect_type().is_type_param(),
@@ -850,15 +846,12 @@ If you encounter an error missing from this list, please file an issue or a PR!"
 
     /// Get the named type defined at the given cursor location, if we've
     /// already added one.
-    pub(crate) fn get_type_param(
-        &self,
-        definition: &clang::Cursor,
-    ) -> Option<TypeId> {
+    pub(crate) fn get_type_param(&self, definition: &Cursor) -> Option<TypeId> {
         assert_eq!(
             definition.kind(),
             clang_sys::CXCursor_TemplateTypeParameter
         );
-        self.type_params.get(definition).cloned()
+        self.type_params.get(definition).copied()
     }
 
     // TODO: Move all this syntax crap to other part of the code.
@@ -927,17 +920,14 @@ If you encounter an error missing from this list, please file an issue or a PR!"
     /// Gather all the unresolved type references.
     fn collect_typerefs(
         &mut self,
-    ) -> Vec<(ItemId, clang::Type, clang::Cursor, Option<ItemId>)> {
+    ) -> Vec<(ItemId, clang::Type, Cursor, Option<ItemId>)> {
         debug_assert!(!self.collected_typerefs);
         self.collected_typerefs = true;
         let mut typerefs = vec![];
 
         for (id, item) in self.items() {
             let kind = item.kind();
-            let ty = match kind.as_type() {
-                Some(ty) => ty,
-                None => continue,
-            };
+            let Some(ty) = kind.as_type() else { continue };
 
             if let TypeKind::UnresolvedTypeRef(ref ty, loc, parent_id) =
                 *ty.kind()
@@ -1074,9 +1064,8 @@ If you encounter an error missing from this list, please file an issue or a PR!"
 
             // Calls to `canonical_name` are expensive, so eagerly filter out
             // items that cannot be replaced.
-            let ty = match item.kind().as_type() {
-                Some(ty) => ty,
-                None => continue,
+            let Some(ty) = item.kind().as_type() else {
+                continue;
             };
 
             match *ty.kind() {
@@ -1105,7 +1094,7 @@ If you encounter an error missing from this list, please file an issue or a PR!"
         }
 
         for (id, replacement_id) in replacements {
-            debug!("Replacing {:?} with {:?}", id, replacement_id);
+            debug!("Replacing {id:?} with {replacement_id:?}");
             let new_parent = {
                 let item_id: ItemId = id.into();
                 let item = self.items[item_id.0].as_mut().unwrap();
@@ -1142,7 +1131,7 @@ If you encounter an error missing from this list, please file an issue or a PR!"
                     .chain(Some(immut_self.root_module.into()))
                     .find(|id| {
                         let item = immut_self.resolve_item(*id);
-                        item.as_module().map_or(false, |m| {
+                        item.as_module().is_some_and(|m| {
                             m.children().contains(&replacement_id.into())
                         })
                     })
@@ -1230,7 +1219,7 @@ If you encounter an error missing from this list, please file an issue or a PR!"
 
     /// When the `__testing_only_extra_assertions` feature is enabled, this
     /// function walks the IR graph and asserts that we do not have any edges
-    /// referencing an ItemId for which we do not have an associated IR item.
+    /// referencing an `ItemId` for which we do not have an associated IR item.
     fn assert_no_dangling_references(&self) {
         if cfg!(feature = "__testing_only_extra_assertions") {
             for _ in self.assert_no_dangling_item_traversal() {
@@ -1277,19 +1266,13 @@ If you encounter an error missing from this list, please file an issue or a PR!"
                         id.ancestors(self)
                             .chain(Some(self.root_module.into()))
                             .any(|ancestor| {
-                                debug!(
-                                    "Checking if {:?} is a child of {:?}",
-                                    id, ancestor
-                                );
+                                debug!("Checking if {id:?} is a child of {ancestor:?}");
                                 self.resolve_item(ancestor)
                                     .as_module()
-                                    .map_or(false, |m| {
-                                        m.children().contains(&id)
-                                    })
+                                    .is_some_and(|m| m.children().contains(&id))
                             })
                     },
-                    "{:?} should be in some ancestor module's children set",
-                    id
+                    "{id:?} should be in some ancestor module's children set"
                 );
             }
         }
@@ -1314,7 +1297,7 @@ If you encounter an error missing from this list, please file an issue or a PR!"
             .as_ref()
             .unwrap()
             .get(&id)
-            .cloned()
+            .copied()
             .unwrap_or(SizednessResult::ZeroSized)
     }
 
@@ -1338,7 +1321,7 @@ If you encounter an error missing from this list, please file an issue or a PR!"
             .as_ref()
             .unwrap()
             .get(&id.into())
-            .cloned()
+            .copied()
             .unwrap_or(HasVtableResult::No)
     }
 
@@ -1418,8 +1401,7 @@ If you encounter an error missing from this list, please file an issue or a PR!"
         self.used_template_parameters
             .as_ref()
             .expect("should have found template parameter usage if we're in codegen")
-            .get(&item)
-            .map_or(false, |items_used_params| items_used_params.contains(&template_param))
+            .get(&item).is_some_and(|items_used_params| items_used_params.contains(&template_param))
     }
 
     /// Return `true` if `item` uses any unbound, generic template parameters,
@@ -1438,7 +1420,7 @@ If you encounter an error missing from this list, please file an issue or a PR!"
                 "should have template parameter usage info in codegen phase",
             )
             .get(&item)
-            .map_or(false, |used| !used.is_empty())
+            .is_some_and(|used| !used.is_empty())
     }
 
     // This deserves a comment. Builtin types don't get a valid declaration, so
@@ -1450,7 +1432,7 @@ If you encounter an error missing from this list, please file an issue or a PR!"
     // If at some point we care about the memory here, probably a map TypeKind
     // -> builtin type ItemId would be the best to improve that.
     fn add_builtin_item(&mut self, item: Item) {
-        debug!("add_builtin_item: item = {:?}", item);
+        debug!("add_builtin_item: item = {item:?}");
         debug_assert!(item.kind().is_type());
         self.add_item_to_module(&item);
         let id = item.id();
@@ -1509,7 +1491,7 @@ If you encounter an error missing from this list, please file an issue or a PR!"
         let item_id = item_id.into();
         match self.resolve_item_fallible(item_id) {
             Some(item) => item,
-            None => panic!("Not an item: {:?}", item_id),
+            None => panic!("Not an item: {item_id:?}"),
         }
     }
 
@@ -1524,11 +1506,11 @@ If you encounter an error missing from this list, please file an issue or a PR!"
     /// correct type definition afterwards.
     ///
     /// TODO(emilio): We could consider doing this only when
-    /// declaration.lexical_parent() != definition.lexical_parent(), but it's
+    /// `declaration.lexical_parent() != definition.lexical_parent()`, but it's
     /// not sure it's worth it.
     pub(crate) fn add_semantic_parent(
         &mut self,
-        definition: clang::Cursor,
+        definition: Cursor,
         parent_id: ItemId,
     ) {
         self.semantic_parents.insert(definition, parent_id);
@@ -1537,9 +1519,9 @@ If you encounter an error missing from this list, please file an issue or a PR!"
     /// Returns a known semantic parent for a given definition.
     pub(crate) fn known_semantic_parent(
         &self,
-        definition: clang::Cursor,
+        definition: Cursor,
     ) -> Option<ItemId> {
-        self.semantic_parents.get(&definition).cloned()
+        self.semantic_parents.get(&definition).copied()
     }
 
     /// Given a cursor pointing to the location of a template instantiation,
@@ -1587,7 +1569,6 @@ If you encounter an error missing from this list, please file an issue or a PR!"
                         self.currently_parsed_types()
                             .iter()
                             .find(|partial_ty| *partial_ty.decl() == referenced)
-                            .cloned()
                     })
                     .and_then(|template_decl| {
                         let num_template_params =
@@ -1612,7 +1593,7 @@ If you encounter an error missing from this list, please file an issue or a PR!"
     /// function template declarations(!?!??!).
     ///
     /// The only way to do this is manually inspecting the AST and looking for
-    /// TypeRefs and TemplateRefs inside. This, unfortunately, doesn't work for
+    /// `TypeRefs` and `TemplateRefs` inside. This, unfortunately, doesn't work for
     /// more complex cases, see the comment on the assertion below.
     ///
     /// To add insult to injury, the AST itself has structure that doesn't make
@@ -1643,7 +1624,7 @@ If you encounter an error missing from this list, please file an issue or a PR!"
         with_id: ItemId,
         template: TypeId,
         ty: &clang::Type,
-        location: clang::Cursor,
+        location: Cursor,
     ) -> Option<TypeId> {
         let num_expected_args =
             self.resolve_type(template).num_self_template_params(self);
@@ -1787,8 +1768,7 @@ If you encounter an error missing from this list, please file an issue or a PR!"
                 }
                 _ => {
                     warn!(
-                        "Found template arg cursor we can't handle: {:?}",
-                        child
+                        "Found template arg cursor we can't handle: {child:?}"
                     );
                     found_const_arg = true;
                 }
@@ -1839,7 +1819,7 @@ If you encounter an error missing from this list, please file an issue or a PR!"
         );
 
         // Bypass all the validations in add_item explicitly.
-        debug!("instantiate_template: inserting item: {:?}", item);
+        debug!("instantiate_template: inserting item: {item:?}");
         self.add_item_to_module(&item);
         debug_assert_eq!(with_id, item.id());
         self.items[with_id.0] = Some(item);
@@ -1859,7 +1839,7 @@ If you encounter an error missing from this list, please file an issue or a PR!"
                     .usr()
                     .and_then(|usr| self.types.get(&TypeKey::Usr(usr)))
             })
-            .cloned()
+            .copied()
     }
 
     /// Looks up for an already resolved type, either because it's builtin, or
@@ -1869,19 +1849,15 @@ If you encounter an error missing from this list, please file an issue or a PR!"
         with_id: ItemId,
         parent_id: Option<ItemId>,
         ty: &clang::Type,
-        location: Option<clang::Cursor>,
+        location: Option<Cursor>,
     ) -> Option<TypeId> {
         use clang_sys::{CXCursor_TypeAliasTemplateDecl, CXCursor_TypeRef};
-        debug!(
-            "builtin_or_resolved_ty: {:?}, {:?}, {:?}, {:?}",
-            ty, location, with_id, parent_id
-        );
+        debug!("builtin_or_resolved_ty: {ty:?}, {location:?}, {with_id:?}, {parent_id:?}");
 
         if let Some(decl) = ty.canonical_declaration(location.as_ref()) {
             if let Some(id) = self.get_resolved_type(&decl) {
                 debug!(
-                    "Already resolved ty {:?}, {:?}, {:?} {:?}",
-                    id, decl, ty, location
+                    "Already resolved ty {id:?}, {decl:?}, {ty:?} {location:?}"
                 );
                 // If the declaration already exists, then either:
                 //
@@ -2029,8 +2005,7 @@ If you encounter an error missing from this list, please file an issue or a PR!"
                     CXType_LongDouble => FloatKind::LongDouble,
                     CXType_Float128 => FloatKind::Float128,
                     _ => panic!(
-                        "Non floating-type complex? {:?}, {:?}",
-                        ty, float_type,
+                        "Non floating-type complex? {ty:?}, {float_type:?}",
                     ),
                 };
                 TypeKind::Complex(float_kind)
@@ -2059,6 +2034,113 @@ If you encounter an error missing from this list, please file an issue or a PR!"
     /// Get the current Clang translation unit that is being processed.
     pub(crate) fn translation_unit(&self) -> &clang::TranslationUnit {
         &self.translation_unit
+    }
+
+    /// Initialize fallback translation unit if it does not exist and
+    /// then return a mutable reference to the fallback translation unit.
+    pub(crate) fn try_ensure_fallback_translation_unit(
+        &mut self,
+    ) -> Option<&mut clang::FallbackTranslationUnit> {
+        if self.fallback_tu.is_none() {
+            let file = format!(
+                "{}/.macro_eval.c",
+                match self.options().clang_macro_fallback_build_dir {
+                    Some(ref path) => path.as_os_str().to_str()?,
+                    None => ".",
+                }
+            );
+
+            let index = clang::Index::new(false, false);
+
+            let mut header_names_to_compile = Vec::new();
+            let mut header_paths = Vec::new();
+            let mut header_contents = String::new();
+            for input_header in &self.options.input_headers {
+                let path = Path::new(input_header.as_ref());
+                if let Some(header_path) = path.parent() {
+                    if header_path == Path::new("") {
+                        header_paths.push(".");
+                    } else {
+                        header_paths.push(header_path.as_os_str().to_str()?);
+                    }
+                } else {
+                    header_paths.push(".");
+                }
+                let header_name = path.file_name()?.to_str()?;
+                header_names_to_compile
+                    .push(header_name.split(".h").next()?.to_string());
+                header_contents +=
+                    format!("\n#include <{header_name}>").as_str();
+            }
+            let header_to_precompile = format!(
+                "{}/{}",
+                match self.options().clang_macro_fallback_build_dir {
+                    Some(ref path) => path.as_os_str().to_str()?,
+                    None => ".",
+                },
+                header_names_to_compile.join("-") + "-precompile.h"
+            );
+            let pch = header_to_precompile.clone() + ".pch";
+
+            let mut header_to_precompile_file = OpenOptions::new()
+                .create(true)
+                .truncate(true)
+                .write(true)
+                .open(&header_to_precompile)
+                .ok()?;
+            header_to_precompile_file
+                .write_all(header_contents.as_bytes())
+                .ok()?;
+
+            let mut c_args = Vec::new();
+            c_args.push("-x".to_string().into_boxed_str());
+            c_args.push("c-header".to_string().into_boxed_str());
+            for header_path in header_paths {
+                c_args.push(format!("-I{header_path}").into_boxed_str());
+            }
+            c_args.extend(
+                self.options
+                    .clang_args
+                    .iter()
+                    .filter(|next| {
+                        !self.options.input_headers.contains(next) &&
+                            next.as_ref() != "-include"
+                    })
+                    .cloned(),
+            );
+            let mut tu = clang::TranslationUnit::parse(
+                &index,
+                &header_to_precompile,
+                &c_args,
+                &[],
+                clang_sys::CXTranslationUnit_ForSerialization,
+            )?;
+            tu.save(&pch).ok()?;
+
+            let mut c_args = vec![
+                "-include-pch".to_string().into_boxed_str(),
+                pch.clone().into_boxed_str(),
+            ];
+            c_args.extend(
+                self.options
+                    .clang_args
+                    .clone()
+                    .iter()
+                    .filter(|next| {
+                        !self.options.input_headers.contains(next) &&
+                            next.as_ref() != "-include"
+                    })
+                    .cloned(),
+            );
+            self.fallback_tu = Some(clang::FallbackTranslationUnit::new(
+                file,
+                header_to_precompile,
+                pch,
+                &c_args,
+            )?);
+        }
+
+        self.fallback_tu.as_mut()
     }
 
     /// Have we parsed the macro named `macro_name` already?
@@ -2096,19 +2178,14 @@ If you encounter an error missing from this list, please file an issue or a PR!"
     pub(crate) fn replace(&mut self, name: &[String], potential_ty: ItemId) {
         match self.replacements.entry(name.into()) {
             Entry::Vacant(entry) => {
-                debug!(
-                    "Defining replacement for {:?} as {:?}",
-                    name, potential_ty
-                );
+                debug!("Defining replacement for {name:?} as {potential_ty:?}");
                 entry.insert(potential_ty);
             }
             Entry::Occupied(occupied) => {
                 warn!(
-                    "Replacement for {:?} already defined as {:?}; \
-                     ignoring duplicate replacement definition as {:?}",
-                    name,
+                    "Replacement for {name:?} already defined as {:?}; \
+                     ignoring duplicate replacement definition as {potential_ty:?}",
                     occupied.get(),
-                    potential_ty
                 );
             }
         }
@@ -2143,7 +2220,7 @@ If you encounter an error missing from this list, please file an issue or a PR!"
     /// namespace.
     fn tokenize_namespace(
         &self,
-        cursor: &clang::Cursor,
+        cursor: &Cursor,
     ) -> (Option<String>, ModuleKind) {
         assert_eq!(
             cursor.kind(),
@@ -2154,7 +2231,7 @@ If you encounter an error missing from this list, please file an issue or a PR!"
         let mut module_name = None;
         let spelling = cursor.spelling();
         if !spelling.is_empty() {
-            module_name = Some(spelling)
+            module_name = Some(spelling);
         }
 
         let mut kind = ModuleKind::Normal;
@@ -2205,22 +2282,24 @@ If you encounter an error missing from this list, please file an issue or a PR!"
                         //
                         // See also https://github.com/rust-lang/rust-bindgen/issues/1676.
                         warn!(
-                            "Ignored unknown namespace prefix '{}' at {:?} in {:?}",
+                            "Ignored unknown namespace prefix '{}' at {token:?} in {cursor:?}",
                             String::from_utf8_lossy(name),
-                            token,
-                            cursor
                         );
                     }
                 }
             }
         }
 
+        if cursor.is_inline_namespace() {
+            kind = ModuleKind::Inline;
+        }
+
         (module_name, kind)
     }
 
-    /// Given a CXCursor_Namespace cursor, return the item ID of the
+    /// Given a `CXCursor_Namespace` cursor, return the item ID of the
     /// corresponding module, or create one on the fly.
-    pub(crate) fn module(&mut self, cursor: clang::Cursor) -> ModuleId {
+    pub(crate) fn module(&mut self, cursor: Cursor) -> ModuleId {
         use clang_sys::*;
         assert_eq!(cursor.kind(), CXCursor_Namespace, "Be a nice person");
         let cursor = cursor.canonical();
@@ -2384,7 +2463,7 @@ If you encounter an error missing from this list, please file an issue or a PR!"
                     }
 
                     let name = item.path_for_allowlisting(self)[1..].join("::");
-                    debug!("allowlisted_items: testing {:?}", name);
+                    debug!("allowlisted_items: testing {name:?}");
 
                     if self.options().allowlisted_items.matches(&name) {
                         return true;
@@ -2438,9 +2517,8 @@ If you encounter an error missing from this list, please file an issue or a PR!"
                                 return false;
                             }
 
-                            let enum_ = match *ty.kind() {
-                                TypeKind::Enum(ref e) => e,
-                                _ => return false,
+                            let TypeKind::Enum(ref enum_) = *ty.kind() else {
+                                return false;
                             };
 
                             if ty.name().is_some() {
@@ -2455,7 +2533,11 @@ If you encounter an error missing from this list, please file an issue or a PR!"
                                 );
                                 let name = prefix_path[1..].join("::");
                                 prefix_path.pop().unwrap();
-                                self.options().allowlisted_vars.matches(name)
+                                self.options().allowlisted_vars.matches(&name)
+                                    || self
+                                        .options()
+                                        .allowlisted_items
+                                        .matches(name)
                             })
                         }
                     }
@@ -2529,9 +2611,19 @@ If you encounter an error missing from this list, please file an issue or a PR!"
         }
     }
 
+    /// Call if an opaque array is generated
+    pub(crate) fn generated_opaque_array(&self) {
+        self.generated_opaque_array.set(true)
+    }
+
+    /// Whether we need to generate the opaque array type
+    pub(crate) fn need_opaque_array_type(&self) -> bool {
+        self.generated_opaque_array.get()
+    }
+
     /// Call if a bindgen complex is generated
     pub(crate) fn generated_bindgen_complex(&self) {
-        self.generated_bindgen_complex.set(true)
+        self.generated_bindgen_complex.set(true);
     }
 
     /// Whether we need to generate the bindgen complex type
@@ -2541,7 +2633,7 @@ If you encounter an error missing from this list, please file an issue or a PR!"
 
     /// Call if a bindgen float16 is generated
     pub(crate) fn generated_bindgen_float16(&self) {
-        self.generated_bindgen_float16.set(true)
+        self.generated_bindgen_float16.set(true);
     }
 
     /// Whether we need to generate the bindgen float16 type
@@ -2714,7 +2806,7 @@ If you encounter an error missing from this list, please file an issue or a PR!"
         !self.cannot_derive_hash.as_ref().unwrap().contains(&id)
     }
 
-    /// Compute whether we can derive PartialOrd, PartialEq or Eq.
+    /// Compute whether we can derive `PartialOrd`, `PartialEq` or `Eq`.
     fn compute_cannot_derive_partialord_partialeq_or_eq(&mut self) {
         let _t = self.timer("compute_cannot_derive_partialord_partialeq_or_eq");
         assert!(self.cannot_derive_partialeq_or_partialord.is_none());
@@ -2749,7 +2841,7 @@ If you encounter an error missing from this list, please file an issue or a PR!"
             .as_ref()
             .unwrap()
             .get(&id)
-            .cloned()
+            .copied()
             .unwrap_or(CanDerive::Yes)
     }
 
@@ -3018,7 +3110,7 @@ impl TemplateParameters for PartialType {
 }
 
 fn unused_regex_diagnostic(item: &str, name: &str, _ctx: &BindgenContext) {
-    warn!("unused option: {} {}", name, item);
+    warn!("unused option: {name} {item}");
 
     #[cfg(feature = "experimental")]
     if _ctx.options().emit_diagnostics {
@@ -3026,11 +3118,11 @@ fn unused_regex_diagnostic(item: &str, name: &str, _ctx: &BindgenContext) {
 
         Diagnostic::default()
             .with_title(
-                format!("Unused regular expression: `{}`.", item),
-                Level::Warn,
+                format!("Unused regular expression: `{item}`."),
+                Level::Warning,
             )
             .add_annotation(
-                format!("This regular expression was passed to `{}`.", name),
+                format!("This regular expression was passed to `{name}`."),
                 Level::Note,
             )
             .display();

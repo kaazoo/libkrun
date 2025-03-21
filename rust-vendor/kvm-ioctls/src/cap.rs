@@ -82,6 +82,8 @@ pub enum Cap {
     #[cfg(target_arch = "x86_64")]
     Xsave = KVM_CAP_XSAVE,
     #[cfg(target_arch = "x86_64")]
+    Xsave2 = KVM_CAP_XSAVE2,
+    #[cfg(target_arch = "x86_64")]
     Xcrs = KVM_CAP_XCRS,
     PpcGetPvinfo = KVM_CAP_PPC_GET_PVINFO,
     PpcIrqLevel = KVM_CAP_PPC_IRQ_LEVEL,
@@ -160,4 +162,7 @@ pub enum Cap {
     ExitHypercall = KVM_CAP_EXIT_HYPERCALL,
     #[cfg(target_arch = "x86_64")]
     MemoryFaultInfo = KVM_CAP_MEMORY_FAULT_INFO,
+    UserMemory2 = KVM_CAP_USER_MEMORY2,
+    GuestMemfd = KVM_CAP_GUEST_MEMFD,
+    MemoryAttributes = KVM_CAP_MEMORY_ATTRIBUTES,
 }

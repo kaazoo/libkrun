@@ -112,14 +112,10 @@ pub fn build_zlib_ng(target: &str, compat: bool) {
         None,
         &[
             "adler32",
-            "adler32_fold",
-            "chunkset",
-            "compare256",
             "compress",
             "cpu_features",
-            "crc32_braid",
+            "crc32",
             "crc32_braid_comb",
-            "crc32_fold",
             "deflate",
             "deflate_fast",
             "deflate_huff",
@@ -137,10 +133,22 @@ pub fn build_zlib_ng(target: &str, compat: bool) {
             "inftrees",
             "insert_string",
             "insert_string_roll",
-            "slide_hash",
             "trees",
             "uncompr",
             "zutil",
+        ],
+    );
+
+    cfg.append(
+        Some("arch/generic"),
+        &[
+            "adler32_c",
+            "adler32_fold_c",
+            "chunkset_c",
+            "compare256_c",
+            "crc32_braid_c",
+            "crc32_fold_c",
+            "slide_hash_c",
         ],
     );
 
@@ -188,7 +196,8 @@ pub fn build_zlib_ng(target: &str, compat: bool) {
             .flag("-fvisibility=hidden");
     }
 
-    if target.contains("apple") {
+    let is_apple = target.contains("apple");
+    if is_apple {
         cfg.define("_C99_SOURCE", None);
     } else if target.contains("solaris") {
         cfg.define("_XOPEN_SOURCE", "700");
@@ -238,7 +247,7 @@ pub fn build_zlib_ng(target: &str, compat: bool) {
 
             // SSE4.2
             cfg.define("X86_SSE42", None);
-            cfg.append(Some("arch/x86"), &["adler32_sse42", "insert_string_sse42"]);
+            cfg.append(Some("arch/x86"), &["adler32_sse42"]);
             cfg.mflag("-msse4.2", "/arch:SSE4.2");
 
             // AVX-512
@@ -302,7 +311,7 @@ pub fn build_zlib_ng(target: &str, compat: bool) {
             // for arm, don't know if that is still true though
             if !cfg.is_msvc || is_aarch64 {
                 cfg.define("ARM_ACLE", None).define("HAVE_ARM_ACLE_H", None);
-                cfg.append(Some("arch/arm"), &["crc32_acle", "insert_string_acle"]);
+                cfg.append(Some("arch/arm"), &["crc32_acle"]);
                 // When targeting aarch64 we already need to specify +simd, so
                 // we do that once later in this block
                 if !is_aarch64 {
@@ -314,7 +323,8 @@ pub fn build_zlib_ng(target: &str, compat: bool) {
             // neon
             // Fix armv7-unknown-linux-musleabi and arm-unknown-linux-musleabi by only
             // passing in ARM_NEON if that target is enabled.
-            if features.split(",").any(|name| name == "neon") {
+            // Disable for apple targets due to https://github.com/rust-lang/libz-sys/issues/230
+            if !is_apple && features.split(",").any(|name| name == "neon") {
                 cfg.define("ARM_NEON", None);
             }
 

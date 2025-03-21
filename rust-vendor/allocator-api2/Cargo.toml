@@ -13,7 +13,7 @@
 edition = "2018"
 rust-version = "1.63"
 name = "allocator-api2"
-version = "0.2.20"
+version = "0.2.21"
 authors = ["Zakarum <zaq.dev@icloud.com>"]
 build = false
 autobins = false

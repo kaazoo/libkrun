@@ -12,9 +12,10 @@
 [package]
 edition = "2021"
 name = "virtio-bindings"
-version = "0.2.4"
+version = "0.2.5"
 authors = ["Sergio Lopez <slp@redhat.com>"]
-build = false
+build = "build.rs"
+autolib = false
 autobins = false
 autoexamples = false
 autotests = false
@@ -30,6 +31,9 @@ name = "virtio_bindings"
 path = "src/lib.rs"
 
 [dependencies]
+
+[build-dependencies.bindgen]
+version = "0.71.0"
 
 [features]
 virtio-v4_14_0 = []

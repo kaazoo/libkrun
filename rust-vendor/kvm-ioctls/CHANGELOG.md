@@ -2,6 +2,39 @@
 
 ## Upcoming Release
 
+## v0.21.0
+
+### Added
+
+- [[#310](https://github.com/rust-vmm/kvm/pull/310)]: Added support for
+  `KVM_CAP_XSAVE2` and the `KVM_GET_XSAVE2` ioctl.
+
+### Changed
+
+- [[#310](https://github.com/rust-vmm/kvm/pull/310)]: Changed `set_xsave()`
+  `unsafe` because the C `kvm_xsave` struct was extended to have a flexible
+  array member (FAM) in the end in Linux 5.16 and `KVM_SET_XSAVE` may copy data
+  beyond the traditional size (i.e. 4096 bytes). If any features are enabled
+  dynamically on Linux 5.16+, it is recommended to use `set_xsave2()` instead.
+
+## v0.20.0
+
+### Added
+
+- [[#288](https://github.com/rust-vmm/kvm-ioctls/pull/288)]: Introduce `Cap::GuestMemfd`, `Cap::MemoryAttributes` and
+   `Cap::UserMemory2` capabilities enum variants for use with `VmFd::check_extension`.
+- [[#288](https://github.com/rust-vmm/kvm-ioctls/pull/288)]: Introduce `VmFd::check_extension_raw` and `VmFd::check_extension_int` to allow `KVM_CHECK_EXTENSION` to return integer.
+
+### Changed
+
+- [[#305](https://github.com/rust-vmm/kvm/pull/305)]: Updated kvm-bindings to 0.11.0.
+
+### Fixed
+
+- [[#298](https://github.com/rust-vmm/kvm/pull/298)]: Fixed incorrect usage of `ioctl_wit_ref` in the
+  `create_device` method. Replace it with `ioctl_wit_mut_ref` as the passed parameter may be mutated by the
+  ioctl.
+
 ## v0.19.0
 
 ### Added

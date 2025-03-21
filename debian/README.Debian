@@ -46,7 +46,7 @@ After this the vendor directory will have to be regenerated to update the rust
 dependencies:
 
 ```
-$ ./debian/rules vendor-dependencies
+$ ./debian/rules vendor-deps
 ```
 
 And the resulting rust-vendor directory might have to be committed to git so

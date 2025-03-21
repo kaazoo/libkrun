@@ -13,13 +13,14 @@
 edition = "2021"
 rust-version = "1.63.0"
 name = "openssl-sys"
-version = "0.9.104"
+version = "0.9.106"
 authors = [
     "Alex Crichton <alex@alexcrichton.com>",
     "Steven Fackler <sfackler@gmail.com>",
 ]
 build = "build/main.rs"
 links = "openssl"
+autolib = false
 autobins = false
 autoexamples = false
 autotests = false

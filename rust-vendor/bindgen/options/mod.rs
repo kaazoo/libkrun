@@ -4,13 +4,15 @@
 #[macro_use]
 mod helpers;
 mod as_args;
+#[cfg(feature = "__cli")]
+pub(crate) mod cli;
 
 use crate::callbacks::ParseCallbacks;
 use crate::codegen::{
     AliasVariation, EnumVariation, MacroTypeVariation, NonCopyUnionStyle,
 };
 use crate::deps::DepfileSpec;
-use crate::features::{RustFeatures, RustTarget};
+use crate::features::{RustEdition, RustFeatures, RustTarget};
 use crate::regex_set::RegexSet;
 use crate::Abi;
 use crate::Builder;
@@ -21,9 +23,7 @@ use crate::HashMap;
 use crate::DEFAULT_ANON_FIELDS_PREFIX;
 
 use std::env;
-#[cfg(feature = "experimental")]
-use std::path::Path;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use as_args::AsArgs;
@@ -37,20 +37,20 @@ use helpers::ignore;
 /// a block of code with the following items:
 ///
 /// - `default`: The default value for the field. If this item is omitted, `Default::default()` is
-/// used instead, meaning that the type of the field must implement `Default`.
+///   used instead, meaning that the type of the field must implement `Default`.
 /// - `methods`: A block of code containing methods for the `Builder` type. These methods should be
-/// related to the field being declared.
+///   related to the field being declared.
 /// - `as_args`: This item declares how the field should be converted into a valid CLI argument for
-/// `bindgen` and is used in the [`Builder::command_line_flags`] method which is used to do a
-/// roundtrip test of the CLI args in the `bindgen-test` crate. This item can take one of the
-/// following:
+///   `bindgen` and is used in the [`Builder::command_line_flags`] method which is used to do a
+///   roundtrip test of the CLI args in the `bindgen-test` crate. This item can take one of the
+///   following:
 ///   - A string literal with the flag if the type of the field implements the [`AsArgs`] trait.
 ///   - A closure with the signature `|field, args: &mut Vec<String>| -> ()` that pushes arguments
-///   into the `args` buffer based on the value of the field. This is used if the field does not
-///   implement `AsArgs` or if the implementation of the trait is not logically correct for the
-///   option and a custom behavior must be taken into account.
+///     into the `args` buffer based on the value of the field. This is used if the field does not
+///     implement `AsArgs` or if the implementation of the trait is not logically correct for the
+///     option and a custom behavior must be taken into account.
 ///   - The `ignore` literal, which does not emit any CLI arguments for this field. This is useful
-///   if the field cannot be used from the `bindgen` CLI.
+///     if the field cannot be used from the `bindgen` CLI.
 ///
 /// As an example, this would be the declaration of a `bool` field called `be_fun` whose default
 /// value is `false` (the `Default` value for `bool`):
@@ -508,7 +508,7 @@ options! {
     constified_enums: RegexSet {
         methods: {
             regex_option! {
-                /// Mark the given `enum` as a set o integer constants.
+                /// Mark the given `enum` as a set of integer constants.
                 ///
                 /// This is similar to the [`Builder::constified_enum_module`] style, but the
                 /// constants are generated in the current module instead of in a new module.
@@ -1143,7 +1143,7 @@ options! {
         },
         as_args: |module_lines, args| {
             for (module, lines) in module_lines {
-                for line in lines.iter() {
+                for line in lines {
                     args.push("--module-raw-line".to_owned());
                     args.push(module.clone().into());
                     args.push(line.clone().into());
@@ -1177,6 +1177,35 @@ options! {
             /// ```
             pub fn header<T: Into<String>>(mut self, header: T) -> Builder {
                 self.options.input_headers.push(header.into().into_boxed_str());
+                self
+            }
+
+            /// Add input C/C++ header(s) to generate bindings for.
+            ///
+            /// This can be used to generate bindings for a single header:
+            ///
+            /// ```ignore
+            /// let bindings = bindgen::Builder::default()
+            ///     .headers(["input.h"])
+            ///     .generate()
+            ///     .unwrap();
+            /// ```
+            ///
+            /// Or for multiple headers:
+            ///
+            /// ```ignore
+            /// let bindings = bindgen::Builder::default()
+            ///     .headers(["first.h", "second.h", "third.h"])
+            ///     .generate()
+            ///     .unwrap();
+            /// ```
+            pub fn headers<I: IntoIterator>(mut self, headers: I) -> Builder
+            where
+                I::Item: Into<String>,
+            {
+                self.options
+                    .input_headers
+                    .extend(headers.into_iter().map(Into::into).map(Into::into));
                 self
             }
         },
@@ -1234,6 +1263,9 @@ options! {
     parse_callbacks: Vec<Rc<dyn ParseCallbacks>> {
         methods: {
             /// Add a new [`ParseCallbacks`] instance to configure types in different situations.
+            ///
+            /// This can also be used with [`CargoCallbacks`](struct@crate::CargoCallbacks) to emit
+            /// `cargo:rerun-if-changed=...` for all `#include`d header files.
             pub fn parse_callbacks(mut self, cb: Box<dyn ParseCallbacks>) -> Self {
                 self.options.parse_callbacks.push(Rc::from(cb));
                 self
@@ -1389,10 +1421,8 @@ options! {
             /// Note that they will usually not work. However you can use `-fkeep-inline-functions`
             /// or `-fno-inline-functions` if you are responsible of compiling the library to make
             /// them callable.
-            #[cfg_attr(
-                feature = "experimental",
-                doc = "\nCheck the [`Builder::wrap_static_fns`] method for an alternative."
-            )]
+            ///
+            /// Check the [`Builder::wrap_static_fns`] method for an alternative.
             pub fn generate_inline_functions(mut self, doit: bool) -> Self {
                 self.options.generate_inline_functions = doit;
                 self
@@ -1579,9 +1609,26 @@ options! {
             args.push(rust_target.to_string());
         },
     },
+    /// The Rust edition to use for code generation.
+    rust_edition: Option<RustEdition> {
+        methods: {
+            /// Specify the Rust target edition.
+            ///
+            /// The default edition is the latest edition supported by the chosen Rust target.
+            pub fn rust_edition(mut self, rust_edition: RustEdition) -> Self {
+                self.options.rust_edition = Some(rust_edition);
+                self
+            }
+        }
+        as_args: |edition, args| {
+            if let Some(edition) =  edition {
+                args.push("--rust-edition".to_owned());
+                args.push(edition.to_string());
+            }
+        },
+    },
     /// Features to be enabled. They are derived from `rust_target`.
     rust_features: RustFeatures {
-        default: RustTarget::default().into(),
         methods: {},
         // This field cannot be set from the CLI,
         as_args: ignore,
@@ -1814,7 +1861,7 @@ options! {
         },
         as_args: "--dynamic-loading",
     },
-    /// Whether to equire successful linkage for all routines in a shared library.
+    /// Whether to require successful linkage for all routines in a shared library.
     dynamic_link_require_all: bool {
         methods: {
             /// Set whether to require successful linkage for all routines in a shared library.
@@ -1879,7 +1926,7 @@ options! {
         },
         as_args: "--c-naming",
     },
-    /// Wether to always emit explicit padding fields.
+    /// Whether to always emit explicit padding fields.
     force_explicit_padding: bool {
         methods: {
             /// Set whether to always emit explicit padding fields.
@@ -1951,7 +1998,20 @@ options! {
         },
         as_args: "--wrap-unsafe-ops",
     },
-    /// Patterns for functions whose ABI should be overriden.
+    /// Use DSTs to represent structures with flexible array members.
+    flexarray_dst: bool {
+        methods: {
+            /// Use DSTs to represent structures with flexible array members.
+            ///
+            /// This option is disabled by default.
+            pub fn flexarray_dst(mut self, doit: bool) -> Self {
+                self.options.flexarray_dst = doit;
+                self
+            }
+        },
+        as_args: "--flexarray-dst",
+    },
+    /// Patterns for functions whose ABI should be overridden.
     abi_overrides: HashMap<Abi, RegexSet> {
         methods: {
             regex_option! {
@@ -1970,7 +2030,7 @@ options! {
             for (abi, set) in overrides {
                 for item in set.get_items() {
                     args.push("--override-abi".to_owned());
-                    args.push(format!("{}={}", item, abi));
+                    args.push(format!("{item}={abi}"));
                 }
             }
         },
@@ -1978,7 +2038,6 @@ options! {
     /// Whether to generate wrappers for `static` functions.
     wrap_static_fns: bool {
         methods: {
-            #[cfg(feature = "experimental")]
             /// Set whether to generate wrappers for `static`` functions.
             ///
             /// Passing `true` to this method will generate a C source file with non-`static`
@@ -1997,7 +2056,6 @@ options! {
     /// The suffix to be added to the function wrappers for `static` functions.
     wrap_static_fns_suffix: Option<String> {
         methods: {
-            #[cfg(feature = "experimental")]
             /// Set the suffix added to the wrappers for `static` functions.
             ///
             /// This option only comes into effect if `true` is passed to the
@@ -2014,7 +2072,6 @@ options! {
     /// The path of the file where the wrappers for `static` functions will be emitted.
     wrap_static_fns_path: Option<PathBuf> {
         methods: {
-            #[cfg(feature = "experimental")]
             /// Set the path for the source code file that would be created if any wrapper
             /// functions must be generated due to the presence of `static` functions.
             ///
@@ -2075,5 +2132,38 @@ options! {
             }
         },
         as_args: "--emit-diagnostics",
+    },
+    /// Whether to use Clang evaluation on temporary files as a fallback for macros that fail to
+    /// parse.
+    clang_macro_fallback: bool {
+        methods: {
+            /// Use Clang as a fallback for macros that fail to parse using `CExpr`.
+            ///
+            /// This uses a workaround to evaluate each macro in a temporary file. Because this
+            /// results in slower compilation, this option is opt-in.
+            pub fn clang_macro_fallback(mut self) -> Self {
+                self.options.clang_macro_fallback = true;
+                self
+            }
+        },
+        as_args: "--clang-macro-fallback",
+    }
+    /// Path to use for temporary files created by clang macro fallback code like precompiled
+    /// headers.
+    clang_macro_fallback_build_dir: Option<PathBuf> {
+        methods: {
+            /// Set a path to a directory to which `.c` and `.h.pch` files should be written for the
+            /// purpose of using clang to evaluate macros that can't be easily parsed.
+            ///
+            /// The default location for `.h.pch` files is the directory that the corresponding
+            /// `.h` file is located in. The default for the temporary `.c` file used for clang
+            /// parsing is the current working directory. Both of these defaults are overridden
+            /// by this option.
+            pub fn clang_macro_fallback_build_dir<P: AsRef<Path>>(mut self, path: P) -> Self {
+                self.options.clang_macro_fallback_build_dir = Some(path.as_ref().to_owned());
+                self
+            }
+        },
+        as_args: "--clang-macro-fallback-build-dir",
     }
 }
