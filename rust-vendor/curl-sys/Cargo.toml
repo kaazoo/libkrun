@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "curl-sys"
-version = "0.4.78+curl-8.11.0"
+version = "0.4.80+curl-8.12.1"
 authors = ["Alex Crichton <alex@alexcrichton.com>"]
 build = "build.rs"
 links = "curl"
@@ -20,6 +20,7 @@ exclude = [
     "curl/docs/",
     "curl/tests/",
 ]
+autolib = false
 autobins = false
 autoexamples = false
 autotests = false
