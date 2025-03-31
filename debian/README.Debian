@@ -39,7 +39,7 @@ From https://github.com/containers/libkrun
 You can use `gbp import-ref` to merge this new tag into your packaging branch:
 
 ```
-$ gbp import-reg -u v1.10.0
+$ gbp import-ref -u v1.10.0
 ```
 
 After this the vendor directory will have to be regenerated to update the rust

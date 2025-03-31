@@ -1,3 +1,17 @@
+libkrun (1.10.1.1-1asahi1.24.10) oracular; urgency=medium
+
+  * Build for oracular
+  * Based on tag v1.10.1
+
+ -- Andreas Schröder <andreas@kernelpanik.net>  Sun, 30 Mar 2025 22:40:00 +0200
+
+libkrun (1.10.1.1-1asahi2.24.04) noble; urgency=medium
+
+  * Build for noble
+  * Based on tag v1.10.1
+
+ -- Andreas Schröder <andreas@kernelpanik.net>  Sun, 30 Mar 2025 18:48:00 +0200
+
 libkrun (1.9.8-1asahi25.24.10) oracular; urgency=medium
 
   * Change library directory from /usr/lib64 to /usr/lib

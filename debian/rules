@@ -23,7 +23,7 @@ vendor-tarball-sanity-check:
 MAKEFLAGS += --no-print-directory GPU=1 VIRGL_RESOURCE_MAP2=1 BLK=1 NET=1 SND=1
 
 # use specific rustc path
-# export RUSTC:=/usr/bin/rustc-1.80
+export RUSTC:=/usr/bin/rustc-1.80
 
 vendor-deps:
 	if QUILT_PATCHES=debian/patches quilt applied | grep vendor-remove-unused-deps ; then \
@@ -33,16 +33,6 @@ vendor-deps:
 
 	rm -rf $(CARGO_VENDOR_DIR)
 	cargo vendor --manifest-path src/libkrun/Cargo.toml $(CARGO_VENDOR_DIR)
-        # Remove some crates that aren't useful for us and take up a lot of space
-	rm -r \
-	    $(CARGO_VENDOR_DIR)/winapi \
-	    $(CARGO_VENDOR_DIR)/winapi-* \
-	    $(CARGO_VENDOR_DIR)/windows-* \
-	    $(CARGO_VENDOR_DIR)/windows_* \
-	    $(CARGO_VENDOR_DIR)/libz-sys/src/zlib \
-	    $(CARGO_VENDOR_DIR)/libz-sys/src/zlib-ng \
-	    $(CARGO_VENDOR_DIR)/curl-sys/curl \
-	    $(CARGO_VENDOR_DIR)/schannel \
 
 	# lintian: source-contains-prebuilt-windows-binary
 	rm -r \
