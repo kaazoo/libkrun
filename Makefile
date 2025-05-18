@@ -79,7 +79,7 @@ ifeq ($(PREFIX),)
     PREFIX := /usr/local
 endif
 
-.PHONY: install clean test $(LIBRARY_RELEASE_$(OS)) $(LIBRARY_DEBUG_$(OS)) libkrun.pc
+.PHONY: install clean
 
 all: $(LIBRARY_RELEASE_$(OS)) libkrun.pc
 
@@ -106,13 +106,18 @@ endif
 	mv target/release/libkrun.dylib target/release/$(KRUN_BASE_$(OS))
 endif
 	cp target/release/$(KRUN_BASE_$(OS)) $(LIBRARY_RELEASE_$(OS))
+endif
 
 $(LIBRARY_DEBUG_$(OS)): $(INIT_BINARY)
 	cargo build $(FEATURE_FLAGS)
 ifeq ($(SEV),1)
 	mv target/debug/libkrun.so target/debug/$(KRUN_BASE_$(OS))
 endif
+ifeq ($(OS),Linux)
+	patchelf --set-soname $(KRUN_SONAME_$(OS)) --output $(LIBRARY_DEBUG_$(OS)) target/debug/$(KRUN_BASE_$(OS))
+else
 	cp target/debug/$(KRUN_BASE_$(OS)) $(LIBRARY_DEBUG_$(OS))
+endif
 
 libkrun.pc: libkrun.pc.in Makefile
 	rm -f $@ $@-t
@@ -124,7 +129,7 @@ libkrun.pc: libkrun.pc.in Makefile
 	    libkrun.pc.in > $@-t
 	mv $@-t $@
 
-install: libkrun.pc
+install:
 	install -d $(DESTDIR)$(PREFIX)/$(LIBDIR_$(OS))/
 	install -d $(DESTDIR)$(PREFIX)/$(LIBDIR_$(OS))/pkgconfig
 	install -d $(DESTDIR)$(PREFIX)/include
@@ -136,10 +141,3 @@ install: libkrun.pc
 clean:
 	rm -f $(INIT_BINARY)
 	cargo clean
-	rm -rf test-prefix
-	cd tests; cargo clean
-
-test: $(LIBRARY_RELEASE_$(OS))
-	mkdir -p test-prefix
-	PREFIX="$$(realpath test-prefix)" make install
-	cd tests; LD_LIBRARY_PATH="$$(realpath ../test-prefix/lib64/)" PKG_CONFIG_PATH="$$(realpath ../test-prefix/lib64/pkgconfig/)" ./run.sh

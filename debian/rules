@@ -7,7 +7,7 @@ export CARGO_VENDOR_DIR = rust-vendor
 export CARGO_HOME = $(CURDIR)/debian/cargo_home
 
 include /usr/share/dpkg/pkg-info.mk
-include /usr/share/rustc-1.80/architecture.mk
+include /usr/share/rustc-1.82/architecture.mk
 export DEB_HOST_RUST_TYPE DEB_HOST_GNU_TYPE
 
 
@@ -23,7 +23,7 @@ vendor-tarball-sanity-check:
 MAKEFLAGS += --no-print-directory GPU=1 VIRGL_RESOURCE_MAP2=1 BLK=1 NET=1 SND=1
 
 # use specific rustc path
-export RUSTC:=/usr/bin/rustc-1.80
+export RUSTC:=/usr/bin/rustc-1.82
 
 vendor-deps:
 	if QUILT_PATCHES=debian/patches quilt applied | grep vendor-remove-unused-deps ; then \

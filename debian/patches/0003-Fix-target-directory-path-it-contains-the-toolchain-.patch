@@ -6,11 +6,9 @@ Subject: Fix target directory path, it contains the toolchain in our case
  Makefile | 2 +-
  1 file changed, 1 insertion(+), 1 deletion(-)
 
-diff --git a/Makefile b/Makefile
-index 884add9..cf59e75 100644
 --- a/Makefile
 +++ b/Makefile
-@@ -92,7 +92,7 @@ ifeq ($(SEV),1)
+@@ -92,7 +92,7 @@
  	mv target/release/libkrun.so target/release/$(KRUN_BASE_$(OS))
  endif
  ifeq ($(OS),Linux)
