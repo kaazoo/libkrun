@@ -11,9 +11,9 @@
 
 [package]
 edition = "2018"
-rust-version = "1.70.0"
+rust-version = "1.80.0"
 name = "sev"
-version = "4.0.0"
+version = "6.0.0"
 authors = [
     "Nathaniel McCallum <npmccallum@redhat.com>",
     "The VirTEE Project Developers",
@@ -46,11 +46,6 @@ repository = "https://github.com/virtee/sev"
 
 [lib]
 name = "sev"
-crate-type = [
-    "staticlib",
-    "dylib",
-    "rlib",
-]
 path = "src/lib.rs"
 doc = false
 
@@ -71,16 +66,16 @@ name = "id-block"
 path = "tests/id-block.rs"
 
 [[test]]
-name = "launch"
-path = "tests/launch.rs"
-
-[[test]]
 name = "measurement"
 path = "tests/measurement.rs"
 
 [[test]]
 name = "session"
 path = "tests/session.rs"
+
+[[test]]
+name = "sev_launch"
+path = "tests/sev_launch.rs"
 
 [[test]]
 name = "snp_launch"
@@ -114,7 +109,7 @@ version = "0.4.3"
 version = "1.4.0"
 
 [dependencies.libc]
-version = "0.2.154"
+version = "0.2.161"
 
 [dependencies.openssl]
 version = "0.10"
@@ -126,6 +121,11 @@ optional = true
 
 [dependencies.rdrand]
 version = "^0.8"
+optional = true
+
+[dependencies.reqwest]
+version = "0.11.10"
+features = ["blocking"]
 optional = true
 
 [dependencies.rsa]
@@ -149,16 +149,18 @@ optional = true
 [dependencies.static_assertions]
 version = "^1.1.0"
 
+[dependencies.tokio]
+version = "1.29.1"
+features = ["rt-multi-thread"]
+optional = true
+
 [dependencies.uuid]
-version = "^1.8"
+version = "^1.11"
 features = ["serde"]
 
 [dependencies.x509-cert]
 version = "0.2.5"
 optional = true
-
-[dev-dependencies.kvm-bindings]
-version = ">=0.7"
 
 [dev-dependencies.serial_test]
 version = "3.0"
@@ -170,7 +172,11 @@ crypto_nossl = [
     "dep:sha2",
     "dep:x509-cert",
 ]
-dangerous_hw_tests = ["hw_tests"]
+dangerous_hw_tests = [
+    "hw_tests",
+    "dep:reqwest",
+    "dep:tokio",
+]
 default = [
     "sev",
     "snp",
@@ -178,13 +184,16 @@ default = [
 hw_tests = []
 openssl = [
     "dep:openssl",
-    "rdrand",
+    "dep:rdrand",
 ]
 sev = []
 snp = []
 
 [target.'cfg(target_os = "linux")'.dependencies.iocuddle]
-version = "0.1"
+version = "^0.1"
+
+[target.'cfg(target_os = "linux")'.dev-dependencies.kvm-bindings]
+version = ">=0.9.1"
 
 [target.'cfg(target_os = "linux")'.dev-dependencies.kvm-ioctls]
 version = ">=0.16"

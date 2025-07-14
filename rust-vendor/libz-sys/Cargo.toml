@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "libz-sys"
-version = "1.1.21"
+version = "1.1.22"
 authors = [
     "Alex Crichton <alex@alexcrichton.com>",
     "Josh Triplett <josh@joshtriplett.org>",
@@ -65,6 +65,20 @@ categories = [
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/rust-lang/libz-sys"
 
+[features]
+asm = []
+default = [
+    "libc",
+    "stock-zlib",
+]
+static = []
+stock-zlib = []
+zlib-ng = [
+    "libc",
+    "cmake",
+]
+zlib-ng-no-cmake-experimental-community-maintained = ["libc"]
+
 [lib]
 name = "libz_sys"
 path = "src/lib.rs"
@@ -85,20 +99,6 @@ version = "0.3.9"
 
 [build-dependencies.vcpkg]
 version = "0.2.11"
-
-[features]
-asm = []
-default = [
-    "libc",
-    "stock-zlib",
-]
-static = []
-stock-zlib = []
-zlib-ng = [
-    "libc",
-    "cmake",
-]
-zlib-ng-no-cmake-experimental-community-maintained = ["libc"]
 
 [lints.rust.unexpected_cfgs]
 level = "warn"

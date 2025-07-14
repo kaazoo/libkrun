@@ -1,3 +1,10 @@
+libkrun (1.12.2-1asahi1.24.04) noble; urgency=medium
+
+  * Build for noble
+  * Based on tag v1.12.2
+
+ -- Andreas Schröder <andreas@kernelpanik.net>  Sun, 1 May 2025 23:35:00 +0200
+
 libkrun (1.11.2-1asahi5.25.04) plucky; urgency=medium
 
   * Build for plucky

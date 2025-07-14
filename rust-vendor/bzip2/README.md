@@ -17,12 +17,13 @@ a drop-in compatible rust implementation of `libbz2`. With this feature enabled,
 like any other rust code, and no C toolchain is needed to compile this crate or its dependencies.
 
 ```sh
-bzip2 = { version = "0.5.0", default-features = false, features = ["libbz2-rs-sys"] }
+bzip2 = { version = "0.5.1", default-features = false, features = ["libbz2-rs-sys"] }
 ```
 
 *`static`*
 
-Always build `libbz2` from source, and statically link it. When `libbz2-rs-sys` is enabled, static mode is always used.
+Always build `libbz2` from C source, and statically link it. This flag is only meaningful when `bzip2-sys` is used,
+and has no effect when `libbz2-rs-sys` is used as the bzip2 implementation.
 
 ## License
 

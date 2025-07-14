@@ -5,7 +5,7 @@
 
 mod key;
 
-use crate::error::SessionError;
+use crate::{error::SessionError, firmware::host::Build};
 
 use super::*;
 
@@ -171,7 +171,7 @@ impl Session<Initialized> {
         sig.update(&msr.mnonce)?;
 
         if sig.sign_to_vec()? != msr.measure {
-            return Err(ErrorKind::InvalidInput.into());
+            return Err(ErrorKind::InvalidInput)?;
         }
 
         Ok(Session {
@@ -281,7 +281,11 @@ impl Session<Verified> {
 #[cfg(test)]
 mod initialized {
     use super::*;
-    use crate::{launch, session::Session, Build, Version};
+    use crate::{
+        firmware::host::{Build, Version},
+        launch,
+        session::Session,
+    };
 
     #[test]
     fn session() {

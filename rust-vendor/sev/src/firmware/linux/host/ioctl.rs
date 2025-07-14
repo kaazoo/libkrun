@@ -7,6 +7,8 @@ use super::types::*;
 
 use crate::impl_const_id;
 
+use crate::error::FirmwareError;
+
 #[cfg(feature = "snp")]
 use crate::firmware::host::SnpPlatformStatus;
 
@@ -157,6 +159,64 @@ impl<'a, T: Id> Command<'a, T> {
             data: subcmd as *const T as u64,
             error: 0,
             _phantom: PhantomData,
+        }
+    }
+
+    /// encapsulate a SEV errors in command as a Firmware error.
+    pub fn encapsulate(&self) -> FirmwareError {
+        FirmwareError::from(self.error)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_command_get_id() {
+        let mut id = [0u8; 64];
+        let mut data = GetId::new(&mut id);
+        let cmd = Command::<GetId>::from_mut(&mut data);
+        let code = cmd.code;
+        let error = cmd.error;
+        assert_eq!(code, GetId::ID);
+        assert_eq!(error, 0);
+    }
+
+    #[cfg(feature = "sev")]
+    mod sev_specific_tests {
+        use super::super::*;
+
+        #[test]
+        fn test_command_platform_status() {
+            let mut data = PlatformStatus::default();
+            let cmd = Command::<PlatformStatus>::from_mut(&mut data);
+            let code = cmd.code;
+            let error = cmd.error;
+            assert_eq!(code, PlatformStatus::ID);
+            assert_eq!(error, 0);
+        }
+        #[test]
+        fn test_command_platform_status_non_mut() {
+            let data = PlatformStatus::default();
+            let cmd = Command::<PlatformStatus>::from(&data);
+            let code = cmd.code;
+            let error = cmd.error;
+            assert_eq!(code, PlatformStatus::ID);
+            assert_eq!(error, 0);
+        }
+        #[test]
+        fn test_command_error_encapsulation() {
+            // Test with success (0)
+            let cmd = Command::<PlatformStatus> {
+                code: PlatformStatus::ID,
+                error: 0,
+                data: 0,
+                _phantom: PhantomData,
+            };
+
+            let error = cmd.encapsulate();
+            assert!(matches!(error, FirmwareError::IoError(_)));
         }
     }
 }
