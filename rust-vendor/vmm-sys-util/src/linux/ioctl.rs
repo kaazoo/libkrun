@@ -30,10 +30,10 @@ pub const fn ioctl_expr(
     nr: c_uint,
     size: c_uint,
 ) -> ::std::os::raw::c_ulong {
-    (dir << crate::ioctl::_IOC_DIRSHIFT
-        | ty << crate::ioctl::_IOC_TYPESHIFT
-        | nr << crate::ioctl::_IOC_NRSHIFT
-        | size << crate::ioctl::_IOC_SIZESHIFT) as ::std::os::raw::c_ulong
+    ((dir << crate::ioctl::_IOC_DIRSHIFT)
+        | (ty << crate::ioctl::_IOC_TYPESHIFT)
+        | (nr << crate::ioctl::_IOC_NRSHIFT)
+        | (size << crate::ioctl::_IOC_SIZESHIFT)) as ::std::os::raw::c_ulong
 }
 
 /// Declare a function that returns an ioctl number.
@@ -75,10 +75,10 @@ macro_rules! ioctl_ioc_nr {
 #[macro_export]
 macro_rules! ioctl_io_nr {
     ($name:ident, $ty:expr, $nr:expr) => {
-        ioctl_ioc_nr!($name, $crate::ioctl::_IOC_NONE, $ty, $nr, 0);
+        $crate::ioctl_ioc_nr!($name, $crate::ioctl::_IOC_NONE, $ty, $nr, 0);
     };
     ($name:ident, $ty:expr, $nr:expr, $($v:ident),+) => {
-        ioctl_ioc_nr!($name, $crate::ioctl::_IOC_NONE, $ty, $nr, 0, $($v),+);
+        $crate::ioctl_ioc_nr!($name, $crate::ioctl::_IOC_NONE, $ty, $nr, 0, $($v),+);
     };
 }
 
@@ -92,7 +92,7 @@ macro_rules! ioctl_io_nr {
 #[macro_export]
 macro_rules! ioctl_ior_nr {
     ($name:ident, $ty:expr, $nr:expr, $size:ty) => {
-        ioctl_ioc_nr!(
+        $crate::ioctl_ioc_nr!(
             $name,
             $crate::ioctl::_IOC_READ,
             $ty,
@@ -101,7 +101,7 @@ macro_rules! ioctl_ior_nr {
         );
     };
     ($name:ident, $ty:expr, $nr:expr, $size:ty, $($v:ident),+) => {
-        ioctl_ioc_nr!(
+        $crate::ioctl_ioc_nr!(
             $name,
             $crate::ioctl::_IOC_READ,
             $ty,
@@ -122,7 +122,7 @@ macro_rules! ioctl_ior_nr {
 #[macro_export]
 macro_rules! ioctl_iow_nr {
     ($name:ident, $ty:expr, $nr:expr, $size:ty) => {
-        ioctl_ioc_nr!(
+        $crate::ioctl_ioc_nr!(
             $name,
             $crate::ioctl::_IOC_WRITE,
             $ty,
@@ -131,7 +131,7 @@ macro_rules! ioctl_iow_nr {
         );
     };
     ($name:ident, $ty:expr, $nr:expr, $size:ty, $($v:ident),+) => {
-        ioctl_ioc_nr!(
+        $crate::ioctl_ioc_nr!(
             $name,
             $crate::ioctl::_IOC_WRITE,
             $ty,
@@ -152,7 +152,7 @@ macro_rules! ioctl_iow_nr {
 #[macro_export]
 macro_rules! ioctl_iowr_nr {
     ($name:ident, $ty:expr, $nr:expr, $size:ty) => {
-        ioctl_ioc_nr!(
+        $crate::ioctl_ioc_nr!(
             $name,
             $crate::ioctl::_IOC_READ | $crate::ioctl::_IOC_WRITE,
             $ty,
@@ -161,7 +161,7 @@ macro_rules! ioctl_iowr_nr {
         );
     };
     ($name:ident, $ty:expr, $nr:expr, $size:ty, $($v:ident),+) => {
-        ioctl_ioc_nr!(
+        $crate::ioctl_ioc_nr!(
             $name,
             $crate::ioctl::_IOC_READ | $crate::ioctl::_IOC_WRITE,
             $ty,
@@ -216,7 +216,7 @@ type IoctlRequest = c_int;
 /// # Arguments
 ///
 /// * `fd`: an open file descriptor corresponding to the device on which
-/// to call the ioctl.
+///   to call the ioctl.
 /// * `req`: a device-dependent request code.
 ///
 /// # Safety
@@ -257,7 +257,7 @@ pub unsafe fn ioctl<F: AsRawFd>(fd: &F, req: c_ulong) -> c_int {
 /// # Arguments
 ///
 /// * `fd`: an open file descriptor corresponding to the device on which
-/// to call the ioctl.
+///   to call the ioctl.
 /// * `req`: a device-dependent request code.
 /// * `arg`: a single value passed to ioctl.
 ///
@@ -303,7 +303,7 @@ pub unsafe fn ioctl_with_val<F: AsRawFd>(fd: &F, req: c_ulong, arg: c_ulong) -> 
 /// # Arguments
 ///
 /// * `fd`: an open file descriptor corresponding to the device on which
-/// to call the ioctl.
+///   to call the ioctl.
 /// * `req`: a device-dependent request code.
 /// * `arg`: an immutable reference passed to ioctl.
 ///
@@ -325,7 +325,7 @@ pub unsafe fn ioctl_with_ref<F: AsRawFd, T>(fd: &F, req: c_ulong, arg: &T) -> c_
 /// # Arguments
 ///
 /// * `fd`: an open file descriptor corresponding to the device on which
-/// to call the ioctl.
+///   to call the ioctl.
 /// * `req`: a device-dependent request code.
 /// * `arg`: a mutable reference passed to ioctl.
 ///
@@ -347,7 +347,7 @@ pub unsafe fn ioctl_with_mut_ref<F: AsRawFd, T>(fd: &F, req: c_ulong, arg: &mut 
 /// # Arguments
 ///
 /// * `fd`: an open file descriptor corresponding to the device on which
-/// to call the ioctl.
+///   to call the ioctl.
 /// * `req`: a device-dependent request code.
 /// * `arg`: a raw pointer passed to ioctl.
 ///
@@ -365,7 +365,7 @@ pub unsafe fn ioctl_with_ptr<F: AsRawFd, T>(fd: &F, req: c_ulong, arg: *const T)
 /// # Arguments
 ///
 /// * `fd`: an open file descriptor corresponding to the device on which
-/// to call the ioctl.
+///   to call the ioctl.
 /// * `req`: a device-dependent request code.
 /// * `arg`: a mutable raw pointer passed to ioctl.
 ///

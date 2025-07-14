@@ -5,6 +5,7 @@ use crate::certs::snp::{Certificate, Chain, Verifiable};
 
 use crate::{
     certs::snp::ecdsa::Signature,
+    error::AttestationReportError,
     firmware::host::TcbVersion,
     util::{
         array::Array,
@@ -14,7 +15,7 @@ use crate::{
 
 use serde::{Deserialize, Serialize};
 
-use std::{fmt::Display, io::Write};
+use std::{fmt::Display, io::Write, ops::Range};
 
 #[cfg(any(feature = "openssl", feature = "crypto_nossl"))]
 use std::{
@@ -29,6 +30,9 @@ use bitfield::bitfield;
 
 #[cfg(feature = "openssl")]
 use openssl::{ecdsa::EcdsaSig, sha::Sha384};
+
+const ATT_REP_FW_LEN: usize = 1184;
+const CHIP_ID_RANGE: Range<usize> = 0x1A0..0x1E0;
 
 /// Structure of required data for fetching the derived key.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -281,101 +285,135 @@ pub struct AttestationReport {
     pub signature: Signature,
 }
 
+#[inline]
+fn write_tcb(
+    h: &mut impl Write,
+    variant: &ReportVariant,
+    tcb: &TcbVersion,
+    turin_like: bool,
+) -> Result<(), std::io::Error> {
+    h.write_bytes(
+        if matches!(variant, ReportVariant::V3PreTurin)
+            || (matches!(variant, ReportVariant::V2) && !turin_like)
+        {
+            tcb.to_legacy_bytes()
+        } else {
+            tcb.to_turin_bytes()
+        },
+    )
+}
+
+#[inline]
+fn parse_tcb(
+    stepper: &mut &[u8],
+    variant: &ReportVariant,
+    turin_like: bool,
+) -> Result<TcbVersion, std::io::Error> {
+    Ok(
+        if matches!(variant, ReportVariant::V3PreTurin)
+            || (matches!(variant, ReportVariant::V2) && !turin_like)
+        {
+            TcbVersion::from_legacy_bytes(&stepper.parse_bytes()?)
+        } else {
+            TcbVersion::from_turin_bytes(&stepper.parse_bytes()?)
+        },
+    )
+}
+
 impl AttestationReport {
+    #[inline(always)]
+    /// Checks if the MaskChipId is set to 1. If not, then it will check if
+    /// the CHIP_ID is Turin-like.
+    fn chip_id_is_turin_like(bytes: &[u8]) -> Result<bool, AttestationReportError> {
+        // Chip ID -> 0x1A0-0x1E0
+        if bytes == [0; 64] {
+            return Err(AttestationReportError::MaskedChipId);
+        }
+
+        // Last 8 bytes of CHIP_ID are zero, then it is Turin Like.
+        Ok(bytes[8..] == [0; 56])
+    }
+
     /// Attempts to parse an AttestationReport structure from raw bytes.
     pub fn from_bytes(mut bytes: &[u8]) -> Result<Self, std::io::Error> {
+        if bytes.len() != ATT_REP_FW_LEN {
+            return Err(std::io::ErrorKind::InvalidData)?;
+        }
+
         let variant = ReportVariant::from_bytes(bytes)?;
 
-        let stepper: &mut &[u8] = &mut bytes;
+        let stepper = &mut bytes;
 
-        Ok(match variant {
-            ReportVariant::V2 => AttestationReport {
-                version: stepper.parse_bytes::<_, 0>()?,
-                guest_svn: stepper.parse_bytes::<_, 0>()?,
-                policy: stepper.parse_bytes::<_, 0>()?,
-                family_id: stepper.parse_bytes::<_, 0>()?,
-                image_id: stepper.parse_bytes::<_, 0>()?,
-                vmpl: stepper.parse_bytes::<_, 0>()?,
-                sig_algo: stepper.parse_bytes::<_, 0>()?,
-                current_tcb: TcbVersion::from_legacy_bytes(&stepper.parse_bytes::<[u8; 8], 0>()?),
-                plat_info: stepper.parse_bytes::<_, 0>()?,
-                key_info: stepper.parse_bytes::<_, 0>()?,
-                report_data: stepper.parse_bytes::<_, 4>()?,
-                measurement: stepper.parse_bytes::<_, 0>()?,
-                host_data: stepper.parse_bytes::<_, 0>()?,
-                id_key_digest: stepper.parse_bytes::<_, 0>()?,
-                author_key_digest: stepper.parse_bytes::<_, 0>()?,
-                report_id: stepper.parse_bytes::<_, 0>()?,
-                report_id_ma: stepper.parse_bytes::<_, 0>()?,
-                reported_tcb: TcbVersion::from_legacy_bytes(&stepper.parse_bytes::<[u8; 8], 0>()?),
-                cpuid_fam_id: None,
-                cpuid_mod_id: None,
-                cpuid_step: None,
-                chip_id: stepper.parse_bytes::<_, 24>()?,
-                committed_tcb: TcbVersion::from_legacy_bytes(&stepper.parse_bytes::<[u8; 8], 0>()?),
-                current: stepper.parse_bytes::<_, 0>()?,
-                committed: stepper.parse_bytes::<_, 1>()?,
-                launch_tcb: TcbVersion::from_legacy_bytes(&stepper.parse_bytes::<[u8; 8], 1>()?),
-                signature: stepper.parse_bytes::<_, 168>()?,
-            },
-            ReportVariant::V3PreTurin => AttestationReport {
-                version: stepper.parse_bytes::<_, 0>()?,
-                guest_svn: stepper.parse_bytes::<_, 0>()?,
-                policy: stepper.parse_bytes::<_, 0>()?,
-                family_id: stepper.parse_bytes::<_, 0>()?,
-                image_id: stepper.parse_bytes::<_, 0>()?,
-                vmpl: stepper.parse_bytes::<_, 0>()?,
-                sig_algo: stepper.parse_bytes::<_, 0>()?,
-                current_tcb: TcbVersion::from_legacy_bytes(&stepper.parse_bytes::<[u8; 8], 0>()?),
-                plat_info: stepper.parse_bytes::<_, 0>()?,
-                key_info: stepper.parse_bytes::<_, 0>()?,
-                report_data: stepper.parse_bytes::<_, 4>()?,
-                measurement: stepper.parse_bytes::<_, 0>()?,
-                host_data: stepper.parse_bytes::<_, 0>()?,
-                id_key_digest: stepper.parse_bytes::<_, 0>()?,
-                author_key_digest: stepper.parse_bytes::<_, 0>()?,
-                report_id: stepper.parse_bytes::<_, 0>()?,
-                report_id_ma: stepper.parse_bytes::<_, 0>()?,
-                reported_tcb: TcbVersion::from_legacy_bytes(&stepper.parse_bytes::<[u8; 8], 0>()?),
-                cpuid_fam_id: Some(stepper.parse_bytes::<_, 0>()?),
-                cpuid_mod_id: Some(stepper.parse_bytes::<_, 0>()?),
-                cpuid_step: Some(stepper.parse_bytes::<_, 0>()?),
-                chip_id: stepper.parse_bytes::<_, 21>()?,
-                committed_tcb: TcbVersion::from_legacy_bytes(&stepper.parse_bytes::<[u8; 8], 0>()?),
-                current: stepper.parse_bytes::<_, 0>()?,
-                committed: stepper.parse_bytes::<_, 1>()?,
-                launch_tcb: TcbVersion::from_legacy_bytes(&stepper.parse_bytes::<[u8; 8], 1>()?),
-                signature: stepper.parse_bytes::<_, 168>()?,
-            },
-            ReportVariant::V3Turin => AttestationReport {
-                version: stepper.parse_bytes::<_, 0>()?,
-                guest_svn: stepper.parse_bytes::<_, 0>()?,
-                policy: stepper.parse_bytes::<_, 0>()?,
-                family_id: stepper.parse_bytes::<_, 0>()?,
-                image_id: stepper.parse_bytes::<_, 0>()?,
-                vmpl: stepper.parse_bytes::<_, 0>()?,
-                sig_algo: stepper.parse_bytes::<_, 0>()?,
-                current_tcb: TcbVersion::from_turin_bytes(&stepper.parse_bytes::<[u8; 8], 0>()?),
-                plat_info: stepper.parse_bytes::<_, 0>()?,
-                key_info: stepper.parse_bytes::<_, 0>()?,
-                report_data: stepper.parse_bytes::<_, 4>()?,
-                measurement: stepper.parse_bytes::<_, 0>()?,
-                host_data: stepper.parse_bytes::<_, 0>()?,
-                id_key_digest: stepper.parse_bytes::<_, 0>()?,
-                author_key_digest: stepper.parse_bytes::<_, 0>()?,
-                report_id: stepper.parse_bytes::<_, 0>()?,
-                report_id_ma: stepper.parse_bytes::<_, 0>()?,
-                reported_tcb: TcbVersion::from_turin_bytes(&stepper.parse_bytes::<[u8; 8], 0>()?),
-                cpuid_fam_id: Some(stepper.parse_bytes::<_, 0>()?),
-                cpuid_mod_id: Some(stepper.parse_bytes::<_, 0>()?),
-                cpuid_step: Some(stepper.parse_bytes::<_, 0>()?),
-                chip_id: stepper.parse_bytes::<_, 21>()?,
-                committed_tcb: TcbVersion::from_turin_bytes(&stepper.parse_bytes::<[u8; 8], 0>()?),
-                current: stepper.parse_bytes::<_, 0>()?,
-                committed: stepper.parse_bytes::<_, 1>()?,
-                launch_tcb: TcbVersion::from_turin_bytes(&stepper.parse_bytes::<[u8; 8], 1>()?),
-                signature: stepper.parse_bytes::<_, 168>()?,
-            },
+        let turin_like = match variant {
+            ReportVariant::V2 => Self::chip_id_is_turin_like(&stepper[CHIP_ID_RANGE])?,
+            ReportVariant::V3PreTurin => false,
+            _ => true,
+        };
+
+        let version = stepper.parse_bytes()?;
+        let guest_svn = stepper.parse_bytes()?;
+        let policy = stepper.parse_bytes()?;
+        let family_id = stepper.parse_bytes()?;
+        let image_id = stepper.parse_bytes()?;
+        let vmpl = stepper.parse_bytes()?;
+        let sig_algo = stepper.parse_bytes()?;
+
+        let current_tcb = parse_tcb(stepper, &variant, turin_like)?;
+        let plat_info = stepper.parse_bytes()?;
+        let key_info = stepper.parse_bytes()?;
+        let report_data = stepper.skip_bytes::<4>()?.parse_bytes()?;
+        let measurement = stepper.parse_bytes()?;
+        let host_data = stepper.parse_bytes()?;
+        let id_key_digest = stepper.parse_bytes()?;
+        let author_key_digest = stepper.parse_bytes()?;
+        let report_id = stepper.parse_bytes()?;
+        let report_id_ma = stepper.parse_bytes()?;
+        let reported_tcb = parse_tcb(stepper, &variant, turin_like)?;
+
+        let (cpuid_fam_id, cpuid_mod_id, cpuid_step, chip_id) = match variant {
+            ReportVariant::V2 => (None, None, None, stepper.skip_bytes::<24>()?.parse_bytes()?),
+            _ => (
+                Some(stepper.parse_bytes()?),
+                Some(stepper.parse_bytes()?),
+                Some(stepper.parse_bytes()?),
+                stepper.skip_bytes::<21>()?.parse_bytes()?,
+            ),
+        };
+
+        let committed_tcb = parse_tcb(stepper, &variant, turin_like)?;
+        let current = stepper.parse_bytes()?;
+        let committed = stepper.skip_bytes::<1>()?.parse_bytes()?;
+        let launch_tcb = parse_tcb(stepper.skip_bytes::<1>()?, &variant, turin_like)?;
+        let signature = stepper.skip_bytes::<168>()?.parse_bytes()?;
+
+        Ok(Self {
+            version,
+            guest_svn,
+            policy,
+            family_id,
+            image_id,
+            vmpl,
+            sig_algo,
+            current_tcb,
+            plat_info,
+            key_info,
+            report_data,
+            measurement,
+            host_data,
+            id_key_digest,
+            author_key_digest,
+            report_id,
+            report_id_ma,
+            reported_tcb,
+            cpuid_fam_id,
+            cpuid_mod_id,
+            cpuid_step,
+            chip_id,
+            committed_tcb,
+            current,
+            committed,
+            launch_tcb,
+            signature,
         })
     }
 
@@ -384,99 +422,65 @@ impl AttestationReport {
         // Determine the variant based on version and CPUID step
         let variant = if self.version == 2 {
             ReportVariant::V2
-        } else if self.version == 3 && (self.cpuid_fam_id.unwrap_or(0) < 0x1A) {
+        } else if self.version >= 3 && (self.cpuid_fam_id.unwrap_or(0) < 0x1A) {
             ReportVariant::V3PreTurin
         } else {
             ReportVariant::V3Turin
         };
 
+        let turin_like = match variant {
+            ReportVariant::V2 => Self::chip_id_is_turin_like(&*self.chip_id)?,
+            ReportVariant::V3PreTurin => false,
+            _ => true,
+        };
+
         // Write version (common to all variants)
-        handle.write_bytes::<_, 0>(self.version)?;
-        handle.write_bytes::<_, 0>(self.guest_svn)?;
-        handle.write_bytes::<_, 0>(self.policy)?;
-        handle.write_bytes::<_, 0>(self.family_id)?;
-        handle.write_bytes::<_, 0>(self.image_id)?;
-        handle.write_bytes::<_, 0>(self.vmpl)?;
-        handle.write_bytes::<_, 0>(self.sig_algo)?;
-
-        // Write TCB based on variant
-        match variant {
-            ReportVariant::V3Turin => {
-                handle.write_bytes::<_, 0>(self.current_tcb.to_turin_bytes())?;
-            }
-            _ => {
-                handle.write_bytes::<_, 0>(self.current_tcb.to_legacy_bytes())?;
-            }
-        }
-
-        handle.write_bytes::<_, 0>(self.plat_info)?;
-        handle.write_bytes::<_, 0>(self.key_info)?;
-        handle.write_bytes::<_, 4>(self.report_data)?;
-        handle.write_bytes::<_, 0>(self.measurement)?;
-        handle.write_bytes::<_, 0>(self.host_data)?;
-        handle.write_bytes::<_, 0>(self.id_key_digest)?;
-        handle.write_bytes::<_, 0>(self.author_key_digest)?;
-        handle.write_bytes::<_, 0>(self.report_id)?;
-        handle.write_bytes::<_, 0>(self.report_id_ma)?;
-
-        // Write reported TCB based on variant
-        match variant {
-            ReportVariant::V3Turin => {
-                handle.write_bytes::<_, 0>(self.reported_tcb.to_turin_bytes())?;
-            }
-            _ => {
-                handle.write_bytes::<_, 0>(self.reported_tcb.to_legacy_bytes())?;
-            }
-        }
-
+        handle.write_bytes(self.version)?;
+        handle.write_bytes(self.guest_svn)?;
+        handle.write_bytes(self.policy)?;
+        handle.write_bytes(self.family_id)?;
+        handle.write_bytes(self.image_id)?;
+        handle.write_bytes(self.vmpl)?;
+        handle.write_bytes(self.sig_algo)?;
+        write_tcb(&mut handle, &variant, &self.current_tcb, turin_like)?;
+        handle.write_bytes(self.plat_info)?;
+        handle.write_bytes(self.key_info)?;
+        handle.skip_bytes::<4>()?.write_bytes(self.report_data)?;
+        handle.write_bytes(self.measurement)?;
+        handle.write_bytes(self.host_data)?;
+        handle.write_bytes(self.id_key_digest)?;
+        handle.write_bytes(self.author_key_digest)?;
+        handle.write_bytes(self.report_id)?;
+        handle.write_bytes(self.report_id_ma)?;
+        write_tcb(&mut handle, &variant, &self.reported_tcb, turin_like)?;
         // Write CPUID fields based on variant
         match variant {
             ReportVariant::V2 => {
                 // V2 doesn't have CPUID fields
+                handle.skip_bytes::<24>()?.write_bytes(self.chip_id)?;
             }
             _ => {
                 // Write CPUID fields for V3 and V4
-                handle.write_bytes::<_, 0>(self.cpuid_fam_id.unwrap_or(0))?;
-                handle.write_bytes::<_, 0>(self.cpuid_mod_id.unwrap_or(0))?;
-                handle.write_bytes::<_, 0>(self.cpuid_step.unwrap_or(0))?;
-            }
-        }
-
-        // Write chip_id with appropriate padding
-        match variant {
-            ReportVariant::V2 => {
-                handle.write_bytes::<_, 24>(self.chip_id)?;
-            }
-            _ => {
-                handle.write_bytes::<_, 21>(self.chip_id)?;
+                handle.write_bytes(self.cpuid_fam_id.unwrap_or(0))?;
+                handle.write_bytes(self.cpuid_mod_id.unwrap_or(0))?;
+                handle.write_bytes(self.cpuid_step.unwrap_or(0))?;
+                handle.skip_bytes::<21>()?.write_bytes(self.chip_id)?;
             }
         }
 
         // Write committed TCB based on variant
-        match variant {
-            ReportVariant::V3Turin => {
-                handle.write_bytes::<_, 0>(self.committed_tcb.to_turin_bytes())?;
-            }
-            _ => {
-                handle.write_bytes::<_, 0>(self.committed_tcb.to_legacy_bytes())?;
-            }
-        }
+        write_tcb(&mut handle, &variant, &self.committed_tcb, turin_like)?;
+        handle.write_bytes(self.current)?;
+        handle.skip_bytes::<1>()?.write_bytes(self.committed)?;
 
-        handle.write_bytes::<_, 0>(self.current)?;
-        handle.write_bytes::<_, 1>(self.committed)?;
-
-        // Write launch TCB based on variant
-        match variant {
-            ReportVariant::V3Turin => {
-                handle.write_bytes::<_, 1>(self.launch_tcb.to_turin_bytes())?;
-            }
-            _ => {
-                handle.write_bytes::<_, 1>(self.launch_tcb.to_legacy_bytes())?;
-            }
-        }
-
+        write_tcb(
+            handle.skip_bytes::<1>()?,
+            &variant,
+            &self.launch_tcb,
+            turin_like,
+        )?;
         // Write signature (common to all variants)
-        handle.write_bytes::<_, 168>(self.signature)?;
+        handle.skip_bytes::<168>()?.write_bytes(self.signature)?;
 
         Ok(())
     }
@@ -494,9 +498,9 @@ Guest SVN:                    {}
 
 {}
 
-Family ID:                    {}
+Family ID:{}
 
-Image ID:                     {}
+Image ID:{}
 
 VMPL:                         {}
 
@@ -510,19 +514,19 @@ Current TCB:
 
 {}
 
-Report Data:                  {}
+Report Data:{}
 
-Measurement:                  {}
+Measurement:{}
 
-Host Data:                    {}
+Host Data:{}
 
-ID Key Digest:                {}
+ID Key Digest:{}
 
-Author Key Digest:            {}
+Author Key Digest:{}
 
-Report ID:                    {}
+Report ID:{}
 
-Report ID Migration Agent:    {}
+Report ID Migration Agent:{}
 
 Reported TCB:
 
@@ -534,7 +538,7 @@ CPUID Model ID:               {}
 
 CPUID Stepping:               {}
 
-Chip ID:                      {}
+Chip ID:{}
 
 Committed TCB:
 
@@ -592,7 +596,7 @@ impl Verifiable for (&Chain, &AttestationReport) {
 
         let sig = EcdsaSig::try_from(&self.1.signature)?;
 
-        let mut raw_report_bytes: Vec<u8> = Vec::with_capacity(1184usize);
+        let mut raw_report_bytes: Vec<u8> = Vec::with_capacity(ATT_REP_FW_LEN);
         self.1.write_bytes(&mut raw_report_bytes)?;
 
         let measurable_bytes: &[u8] = &raw_report_bytes[..0x2a0];
@@ -621,7 +625,7 @@ impl Verifiable for (&Certificate, &AttestationReport) {
         let vek = self.0;
 
         let sig = EcdsaSig::try_from(&self.1.signature)?;
-        let mut raw_report_bytes: Vec<u8> = Vec::with_capacity(1184usize);
+        let mut raw_report_bytes: Vec<u8> = Vec::with_capacity(ATT_REP_FW_LEN);
         self.1.write_bytes(&mut raw_report_bytes).unwrap();
 
         let measurable_bytes: &[u8] = &raw_report_bytes[..0x2a0];
@@ -655,7 +659,7 @@ impl Verifiable for (&Chain, &AttestationReport) {
 
         let sig = p384::ecdsa::Signature::try_from(&self.1.signature)?;
 
-        let mut raw_report_bytes: Vec<u8> = Vec::with_capacity(1184usize);
+        let mut raw_report_bytes: Vec<u8> = Vec::with_capacity(ATT_REP_FW_LEN);
         self.1.write_bytes(&mut raw_report_bytes).unwrap();
 
         let measurable_bytes: &[u8] = &raw_report_bytes[..0x2a0];
@@ -693,7 +697,7 @@ impl Verifiable for (&Certificate, &AttestationReport) {
 
         let sig = p384::ecdsa::Signature::try_from(&self.1.signature)?;
 
-        let mut raw_report_bytes: Vec<u8> = Vec::with_capacity(1184usize);
+        let mut raw_report_bytes: Vec<u8> = Vec::with_capacity(ATT_REP_FW_LEN);
         self.1.write_bytes(&mut raw_report_bytes).unwrap();
 
         let measurable_bytes: &[u8] = &raw_report_bytes[..0x2a0];
@@ -1084,10 +1088,10 @@ Guest Policy (0x0):
   Debug Allowed: false
   Single Socket: false
 
-Family ID:                    
+Family ID:
 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
 
-Image ID:                     
+Image ID:
 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
 
 VMPL:                         0
@@ -1116,36 +1120,36 @@ Key Information:
     mask chip key:      false
     signing key:        vcek
 
-Report Data:                  
+Report Data:
 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
 
-Measurement:                  
+Measurement:
 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
 
-Host Data:                    
+Host Data:
 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
 
-ID Key Digest:                
-00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
-00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
-00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
-
-Author Key Digest:            
+ID Key Digest:
 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
 
-Report ID:                    
+Author Key Digest:
+00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
 
-Report ID Migration Agent:    
+Report ID:
+00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+
+Report ID Migration Agent:
 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
 
@@ -1164,7 +1168,7 @@ CPUID Model ID:               None
 
 CPUID Stepping:               None
 
-Chip ID:                      
+Chip ID:
 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
@@ -1193,13 +1197,13 @@ TCB Version:
   FMC:         None
 
 Signature:
-  R: 
+  R:
 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
 00 00 00 00 00 00 00 00
-  S: 
+  S:
 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
@@ -1592,18 +1596,53 @@ Signature:
         // Push the version byte at the beginning.
         bytes.insert(0, 2);
 
+        let vcek = [
+            0xD4, 0x95, 0x54, 0xEC, 0x71, 0x7F, 0x4E, 0x5B, 0x0F, 0xE6, 0xB1, 0x43, 0xBC, 0xF0,
+            0x40, 0x5B, 0xD7, 0xAE, 0x30, 0x47, 0x27, 0xED, 0xF4, 0x66, 0x03, 0xF2, 0xA7, 0x6A,
+            0xEF, 0x6A, 0x3A, 0xBC, 0x15, 0xD7, 0xAF, 0x38, 0xDB, 0x75, 0x70, 0x39, 0x02, 0x9F,
+            0x0E, 0xFA, 0xCF, 0xD0, 0x8E, 0x24, 0x43, 0x24, 0x88, 0x47, 0x38, 0xC7, 0x2B, 0x08,
+            0x2E, 0x2F, 0x87, 0xA4, 0x4D, 0x54, 0x1E, 0xB6,
+        ];
+
+        bytes[0x1A8..0x1E0].copy_from_slice(&vcek[..(0x1E0 - 0x1A8)]);
+
         // Test valid input
         let result = AttestationReport::from_bytes(&bytes);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_attestation_report_from_invalid_bytes() {
+        // Create a valid attestation report bytes minus one byte.
+        let mut bytes: Vec<u8> = vec![0; 1183];
+
+        // Push the version byte at the beginning.
+        bytes.insert(0, 2);
 
         // Test invalid input (too short)
-        let result = AttestationReport::from_bytes(&bytes[..100]);
-        assert!(result.is_err());
+        AttestationReport::from_bytes(&bytes[..100]).unwrap();
     }
 
     #[test]
     fn test_attestation_report_write_bytes() {
-        let report = AttestationReport::default();
+        let report = AttestationReport {
+            version: Default::default(),
+            guest_svn: Default::default(),
+            policy: Default::default(),
+            family_id: Default::default(),
+            image_id: Default::default(),
+            chip_id: [
+                0xD4, 0x95, 0x54, 0xEC, 0x71, 0x7F, 0x4E, 0x5B, 0x0F, 0xE6, 0xB1, 0x43, 0xBC, 0xF0,
+                0x40, 0x5B, 0xD7, 0xAE, 0x30, 0x47, 0x27, 0xED, 0xF4, 0x66, 0x03, 0xF2, 0xA7, 0x6A,
+                0xEF, 0x6A, 0x3A, 0xBC, 0x15, 0xD7, 0xAF, 0x38, 0xDB, 0x75, 0x70, 0x39, 0x02, 0x9F,
+                0x0E, 0xFA, 0xCF, 0xD0, 0x8E, 0x24, 0x43, 0x24, 0x88, 0x47, 0x38, 0xC7, 0x2B, 0x08,
+                0x2E, 0x2F, 0x87, 0xA4, 0x4D, 0x54, 0x1E, 0xB6,
+            ]
+            .try_into()
+            .unwrap(),
+            ..Default::default()
+        };
         let mut buffer = Vec::new();
 
         // Test successful write
@@ -1673,6 +1712,15 @@ Signature:
             policy: GuestPolicy::from(0xFF),
             family_id: [0xAA; 16].try_into().unwrap(),
             image_id: [0xBB; 16].try_into().unwrap(),
+            chip_id: [
+                0xD4, 0x95, 0x54, 0xEC, 0x71, 0x7F, 0x4E, 0x5B, 0x0F, 0xE6, 0xB1, 0x43, 0xBC, 0xF0,
+                0x40, 0x5B, 0xD7, 0xAE, 0x30, 0x47, 0x27, 0xED, 0xF4, 0x66, 0x03, 0xF2, 0xA7, 0x6A,
+                0xEF, 0x6A, 0x3A, 0xBC, 0x15, 0xD7, 0xAF, 0x38, 0xDB, 0x75, 0x70, 0x39, 0x02, 0x9F,
+                0x0E, 0xFA, 0xCF, 0xD0, 0x8E, 0x24, 0x43, 0x24, 0x88, 0x47, 0x38, 0xC7, 0x2B, 0x08,
+                0x2E, 0x2F, 0x87, 0xA4, 0x4D, 0x54, 0x1E, 0xB6,
+            ]
+            .try_into()
+            .unwrap(),
             ..Default::default()
         };
 
@@ -1689,7 +1737,23 @@ Signature:
 
     #[test]
     fn test_write_with_limited_writer() {
-        let report = AttestationReport::default();
+        let report = AttestationReport {
+            version: Default::default(),
+            guest_svn: Default::default(),
+            policy: Default::default(),
+            family_id: Default::default(),
+            image_id: Default::default(),
+            chip_id: [
+                0xD4, 0x95, 0x54, 0xEC, 0x71, 0x7F, 0x4E, 0x5B, 0x0F, 0xE6, 0xB1, 0x43, 0xBC, 0xF0,
+                0x40, 0x5B, 0xD7, 0xAE, 0x30, 0x47, 0x27, 0xED, 0xF4, 0x66, 0x03, 0xF2, 0xA7, 0x6A,
+                0xEF, 0x6A, 0x3A, 0xBC, 0x15, 0xD7, 0xAF, 0x38, 0xDB, 0x75, 0x70, 0x39, 0x02, 0x9F,
+                0x0E, 0xFA, 0xCF, 0xD0, 0x8E, 0x24, 0x43, 0x24, 0x88, 0x47, 0x38, 0xC7, 0x2B, 0x08,
+                0x2E, 0x2F, 0x87, 0xA4, 0x4D, 0x54, 0x1E, 0xB6,
+            ]
+            .try_into()
+            .unwrap(),
+            ..Default::default()
+        };
 
         // Writer that can only write small chunks
         struct LimitedWriter {
@@ -1776,5 +1840,33 @@ Signature:
         let key_info = KeyInfo(u32::MAX);
         let value: u32 = key_info.into();
         assert_eq!(value, u32::MAX);
+    }
+
+    #[test]
+    fn test_turin_like_chip_id_milan_chip_id() {
+        // Valid Milan CHIP_ID
+        let vcek_bytes = [
+            0xD4, 0x95, 0x54, 0xEC, 0x71, 0x7F, 0x4E, 0x5B, 0x0F, 0xE6, 0xB1, 0x43, 0xBC, 0xF0,
+            0x40, 0x5B, 0xD7, 0xAE, 0x30, 0x47, 0x27, 0xED, 0xF4, 0x66, 0x03, 0xF2, 0xA7, 0x6A,
+            0xEF, 0x6A, 0x3A, 0xBC, 0x15, 0xD7, 0xAF, 0x38, 0xDB, 0x75, 0x70, 0x39, 0x02, 0x9F,
+            0x0E, 0xFA, 0xCF, 0xD0, 0x8E, 0x24, 0x43, 0x24, 0x88, 0x47, 0x38, 0xC7, 0x2B, 0x08,
+            0x2E, 0x2F, 0x87, 0xA4, 0x4D, 0x54, 0x1E, 0xB6,
+        ];
+
+        assert!(!AttestationReport::chip_id_is_turin_like(&vcek_bytes).unwrap());
+    }
+
+    #[test]
+    fn test_turin_like_chip_id_turin_chip_id() {
+        // Valid Turin CHIP_ID
+        let vcek_bytes = [
+            0xD4, 0x95, 0x54, 0xEC, 0x71, 0x7F, 0x4E, 0x5B, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        ];
+
+        assert!(AttestationReport::chip_id_is_turin_like(&vcek_bytes).unwrap());
     }
 }

@@ -106,18 +106,13 @@ endif
 	mv target/release/libkrun.dylib target/release/$(KRUN_BASE_$(OS))
 endif
 	cp target/release/$(KRUN_BASE_$(OS)) $(LIBRARY_RELEASE_$(OS))
-endif
 
 $(LIBRARY_DEBUG_$(OS)): $(INIT_BINARY)
 	cargo build $(FEATURE_FLAGS)
 ifeq ($(SEV),1)
 	mv target/debug/libkrun.so target/debug/$(KRUN_BASE_$(OS))
 endif
-ifeq ($(OS),Linux)
-	patchelf --set-soname $(KRUN_SONAME_$(OS)) --output $(LIBRARY_DEBUG_$(OS)) target/debug/$(KRUN_BASE_$(OS))
-else
 	cp target/debug/$(KRUN_BASE_$(OS)) $(LIBRARY_DEBUG_$(OS))
-endif
 
 libkrun.pc: libkrun.pc.in Makefile
 	rm -f $@ $@-t
@@ -141,3 +136,10 @@ install:
 clean:
 	rm -f $(INIT_BINARY)
 	cargo clean
+	rm -rf test-prefix
+	cd tests; cargo clean
+
+test: $(LIBRARY_RELEASE_$(OS))
+	mkdir -p test-prefix
+	PREFIX="$$(realpath test-prefix)" make install
+	cd tests; LD_LIBRARY_PATH="$$(realpath ../test-prefix/lib64/)" PKG_CONFIG_PATH="$$(realpath ../test-prefix/lib64/pkgconfig/)" ./run.sh

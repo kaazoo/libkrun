@@ -1,14 +1,13 @@
 #![recursion_limit = "128"]
 #![allow(clippy::cognitive_complexity)]
 
-#[macro_use]
-extern crate bitfield;
+use bitfield::{bitfield, bitfield_fields};
 
 // We use a constant to make sure bits positions don't need to be literals but
 // can also be constants or expressions.
 const THREE: usize = 3;
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct Foo(u16);
 impl From<u8> for Foo {
     fn from(value: u8) -> Foo {
@@ -27,6 +26,7 @@ bitfield! {
     /// documentation comments also work!
     struct FooBar(u32);
     impl Debug;
+    impl BitOr;
     foo1, set_foo1: 0, 0;
     u8;
     foo2, set_foo2: 31, 31;
@@ -68,6 +68,7 @@ bitfield! {
     signed_eight_bits_unaligned, set_signed_eight_bits_unaligned: 8, 1;
     u128, mask U128_MASK(u128), u128_getter, set_u128: 8, 1;
     i128, mask I128_MASK(i128), i128_getter, set_i128: 8, 1;
+    bool, bool_array_getter, bool_array_setter: 8, 8, 3;
 }
 
 impl FooBar {
@@ -92,6 +93,13 @@ impl FooBar {
 
     // Check if an empty bitfield_fields compiles without errors.
     bitfield_fields! {}
+
+    // Check if mask, from and into are allowed as getter names
+    bitfield_fields! {
+        u8, mask, _: 2,0;
+        u8, from, _: 2,0;
+        u8, into, _: 2,0;
+    }
 }
 
 #[test]
@@ -172,6 +180,78 @@ fn test_multiple_bit() {
     assert_eq!(0xF000_000A, fb.0);
     assert_eq!(0xA, fb.foo3());
     assert_eq!(0xF, fb.foo4());
+}
+
+#[test]
+fn test_bool_array_field() {
+    let mut fb = FooBar(0);
+
+    assert!(!fb.bool_array_getter(0));
+    assert!(!fb.bool_array_getter(1));
+    assert!(!fb.bool_array_getter(2));
+
+    fb.bool_array_setter(1, true);
+
+    assert_eq!(1 << 9, fb.0);
+    assert!(!fb.bool_array_getter(0));
+    assert!(fb.bool_array_getter(1));
+    assert!(!fb.bool_array_getter(2));
+}
+
+bitfield! {
+    #[derive(Clone, Copy)]
+    struct FourFields(u8);
+    impl BitOr;
+    impl BitAnd;
+    impl BitXor;
+    impl new;
+    a, set_a: 0;
+    b, set_b: 1;
+    c, set_c: 2;
+    d, set_d: 3;
+}
+
+#[test]
+fn test_bitwise_ops() {
+    let mut ff1 = FourFields(0);
+    ff1.set_a(true);
+    ff1.set_b(true);
+    let mut ff2 = FourFields(0);
+    ff2.set_a(true);
+    ff2.set_c(true);
+
+    let ffand = ff1 & ff2;
+    assert!(ffand.a());
+    assert!(!ffand.b());
+    assert!(!ffand.c());
+    assert!(!ffand.d());
+
+    let ffor = ff1 | ff2;
+    assert!(ffor.a());
+    assert!(ffor.b());
+    assert!(ffor.c());
+    assert!(!ffor.d());
+
+    let ffxor = ff1 ^ ff2;
+    assert!(!ffxor.a());
+    assert!(ffxor.b());
+    assert!(ffxor.c());
+    assert!(!ffxor.d());
+
+    ff1 ^= ff2;
+    assert!(!ff1.a());
+    assert!(ff1.b());
+    assert!(ff1.c());
+    assert!(!ff1.d());
+}
+
+#[test]
+fn test_constructor() {
+    let ff1 = FourFields::new(true, false, true, false);
+    assert!(ff1.a());
+    assert!(!ff1.b());
+    assert!(ff1.c());
+    assert!(!ff1.d());
 }
 
 #[test]
@@ -472,12 +552,18 @@ fn test_is_copy() {
 #[test]
 fn test_debug() {
     let fb = FooBar(1_234_567_890);
-    let expected = "FooBar { .0: 1234567890, foo1: 0, foo2: 0, foo3: 2, foo3: 2, foo4: 4, foo5: [0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 1, 0], foo6: [2, 3, 1], getter_only: 1, pub_getter_only: 1, getter_only_array: [2, 3, 1], all_bits: 1234567890, single_bit: false, into_foo1: Foo(0), into_foo2: Foo(0), from_foo1: Foo(0), into_foo3: Foo(0), into_foo4: Foo(0), into_foo6: [Foo(0), Foo(1), Foo(0)], from_foo3: Foo(0), from_foo5: [Foo(0), Foo(1), Foo(0)], from_foo6: Foo(0), signed_single_bit: 0, signed_two_bits: -2, signed_eight_bits: -46, signed_eight_bits_unaligned: 105, u128_getter: 105, i128_getter: 105 }";
+    let expected = "FooBar { .0: 1234567890, foo1: 0, foo2: 0, foo3: 2, foo3: 2, foo4: 4, foo5: [0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 1, 0], foo6: [2, 3, 1], getter_only: 1, pub_getter_only: 1, getter_only_array: [2, 3, 1], all_bits: 1234567890, single_bit: false, into_foo1: Foo(0), into_foo2: Foo(0), from_foo1: Foo(0), into_foo3: Foo(0), into_foo4: Foo(0), into_foo6: [Foo(0), Foo(1), Foo(0)], from_foo3: Foo(0), from_foo5: [Foo(0), Foo(1), Foo(0)], from_foo6: Foo(0), signed_single_bit: 0, signed_two_bits: -2, signed_eight_bits: -46, signed_eight_bits_unaligned: 105, u128_getter: 105, i128_getter: 105, bool_array_getter: [false, true, false] }";
     assert_eq!(expected, format!("{:?}", fb))
 }
 
 bitfield! {
+    #[derive(Clone, Copy)]
     struct ArrayBitfield([u8]);
+    impl BitAnd;
+    impl BitOr;
+    impl BitXor;
+    impl Debug;
+    impl new;
     u32;
     foo1, set_foo1: 0, 0;
     foo2, set_foo2: 7, 0;
@@ -489,6 +575,9 @@ bitfield! {
     signed_foo3, set_signed_foo3: 8, 1;
     signed_foo4, set_signed_foo4: 19, 4;
     u128, u128_getter, set_u128: 19, 4;
+    u8, from into Foo, into_from_foo1, set_into_from_foo1: 21, 20;
+    u8, into Foo, into_foo2, set_into_foo2: 23, 22;
+    u8, from Foo, from_foo3, set_from_foo3: 25, 24;
 }
 
 #[test]
@@ -603,6 +692,7 @@ fn test_arraybitfield2() {
         foo2, set_foo2: 7, 0;
         foo3, set_foo3: 8, 1;
         foo4, set_foo4: 20, 4;
+        bool, bool_array_getter, bool_array_setter: 0, 0, 3;
     }
     let mut ab = ArrayBitfield2([0; 2]);
 
@@ -644,7 +734,7 @@ fn test_arraybitfield2() {
 }
 
 bitfield! {
-    struct ArrayBitfieldMsb0(MSB0 [u8]);
+    pub(self) struct ArrayBitfieldMsb0(MSB0 [u8]);
     impl Debug;
     u32;
     foo1, set_foo1: 0, 0;
@@ -750,9 +840,57 @@ fn test_arraybitfield_msb0() {
     assert_eq!([0x0F, 0xFF, 0xF0], ab.0);
 }
 
+#[test]
+fn test_arraybitfield_bitops() {
+    let mut a = ArrayBitfield([1u8; 3]);
+    let b = ArrayBitfield([1u8, 2u8, 4u8]);
+
+    let c = a | b;
+    assert_eq!(c.0, [1, 3, 5]);
+
+    let d = a & b;
+    assert_eq!(d.0, [1, 0, 0]);
+
+    let e = a ^ b;
+    assert_eq!(e.0, [0, 3, 5]);
+
+    a ^= b;
+    assert_eq!(a.0, [0, 3, 5]);
+
+    let mut vec_a = ArrayBitfield(vec![1u8; 3]);
+    let vec_b = ArrayBitfield(vec![1u8, 2u8, 4u8]);
+
+    let vec_c = vec_a.clone() | vec_b.clone();
+    assert_eq!(vec_c.0, [1, 3, 5]);
+
+    let vec_d = vec_a.clone() & vec_b.clone();
+    assert_eq!(vec_d.0, [1, 0, 0]);
+
+    let vec_e = vec_a.clone() ^ vec_b.clone();
+    assert_eq!(vec_e.0, [0, 3, 5]);
+
+    vec_a ^= vec_b;
+    assert_eq!(vec_a.0, [0, 3, 5]);
+}
+
+#[test]
+fn test_arraybitfield_constructor() {
+    let a: ArrayBitfield<[u8; 4]> =
+        ArrayBitfield::new(1, 2, 3, 4, -1, -2, -3, -4, 0b0001_0000, Foo(1), 2u8, Foo(3));
+    println!("{:b}", a.0[0]);
+    assert_eq!(a.foo1(), 0);
+    assert_eq!(a.foo2(), 10);
+    assert_eq!(a.foo3(), 133);
+    assert_eq!(a.foo4(), 16);
+    assert_eq!(a.into_from_foo1(), Foo(1));
+    assert_eq!(a.into_foo2(), Foo(2));
+    assert_eq!(a.from_foo3(), 3);
+}
+
 mod some_module {
+    use bitfield::bitfield;
     bitfield! {
-        pub struct PubBitFieldInAModule(u32);
+        pub(super) struct PubBitFieldInAModule(u32);
         impl Debug;
         /// Attribute works on pub fields
         pub field1, set_field1: 1;
@@ -809,7 +947,7 @@ fn field_can_be_public() {
 // in most of the possible ways.
 #[allow(dead_code)]
 mod test_types {
-    use bitfield::{BitRange, BitRangeMut};
+    use bitfield::{bitfield_fields, BitRange, BitRangeMut};
     use std::sync::atomic::{self, AtomicUsize};
 
     struct Foo;
@@ -907,7 +1045,7 @@ mod test_types {
 
 #[allow(dead_code)]
 mod test_no_default_bitrange {
-    use bitfield::{BitRange, BitRangeMut};
+    use bitfield::{bitfield, BitRange, BitRangeMut};
     use std::fmt::Debug;
     use std::fmt::Error;
     use std::fmt::Formatter;
@@ -948,7 +1086,7 @@ mod test_no_default_bitrange {
     }
 
     bitfield! {
-      pub struct BitField2(u16);
+      pub(crate) struct BitField2(u16);
       no default BitRange;
       u8;
       field1, set_field1: 10, 0;
@@ -1132,12 +1270,12 @@ mod test_no_default_bitrange {
 
     #[test]
     fn test_debug_is_implemented_with_no_default_bitrange() {
-        format!("{:?}", BitField1(0));
-        format!("{:?}", BitField3(0));
-        format!("{:?}", BitField4([0; 1]));
-        format!("{:?}", BitField6([0; 1]));
-        format!("{:?}", BitField7([0; 1]));
-        format!("{:?}", BitField9([0; 1]));
+        let _ = format!("{:?}", BitField1(0));
+        let _ = format!("{:?}", BitField3(0));
+        let _ = format!("{:?}", BitField4([0; 1]));
+        let _ = format!("{:?}", BitField6([0; 1]));
+        let _ = format!("{:?}", BitField7([0; 1]));
+        let _ = format!("{:?}", BitField9([0; 1]));
     }
 
     #[test]
@@ -1150,5 +1288,21 @@ mod test_no_default_bitrange {
         assert_eq!(FooBar::PUB_GETTER_MASK, 0b1110u32);
         assert_eq!(FooBar::SINGLE_BIT_MASK, 1 << 3);
         assert_eq!(FooBar::PUB_MASK, 1 << 31);
+    }
+}
+
+#[deny(missing_docs)]
+/// A module to test that `impl new` works with `#[deny(missing_docs)]`
+pub mod deny_missing_docs {
+    use bitfield::bitfield;
+
+    bitfield! {
+        /// A doc comment for the struct
+        pub struct BitField10(u8);
+
+        impl new;
+
+        /// A doc comment for the methods
+        pub field1, set_field1: 0;
     }
 }

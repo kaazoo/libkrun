@@ -876,9 +876,9 @@ impl VcpuFd {
     /// This function is unsafe because there is no guarantee `xsave` is allocated with enough space
     /// to hold the entire xsave state.
     ///
-    /// The required size can be retrieved via `KVM_CHECK_EXTENSION(KVM_CAP_XSAVE2)` and can vary
-    /// depending on features that have been dynamically enabled by `arch_prctl()`. Thus, any
-    /// features must not be enabled dynamically after the required size has been confirmed.
+    /// The required size in bytes can be retrieved via `KVM_CHECK_EXTENSION(KVM_CAP_XSAVE2)` and
+    /// can vary depending on features that have been dynamically enabled by `arch_prctl()`. Thus,
+    /// any features must not be enabled dynamically after the required size has been confirmed.
     ///
     /// If `xsave` is not large enough, `KVM_GET_XSAVE2` copies data beyond the allocated area,
     /// possibly causing undefined behavior.
@@ -891,14 +891,17 @@ impl VcpuFd {
     /// ```rust
     /// # extern crate kvm_ioctls;
     /// # extern crate kvm_bindings;
+    /// # extern crate vmm_sys_util;
     /// # use kvm_ioctls::{Kvm, Cap};
-    /// # use kvm_bindings::{Xsave, kvm_xsave};
+    /// # use kvm_bindings::{Xsave, kvm_xsave, kvm_xsave2};
+    /// # use vmm_sys_util::fam::FamStruct;
     /// let kvm = Kvm::new().unwrap();
     /// let vm = kvm.create_vm().unwrap();
     /// let vcpu = vm.create_vcpu(0).unwrap();
     /// let xsave_size = vm.check_extension_int(Cap::Xsave2);
     /// if xsave_size > 0 {
-    ///     let fam_size = xsave_size as usize - std::mem::size_of::<kvm_xsave>();
+    ///     let fam_size = (xsave_size as usize - std::mem::size_of::<kvm_xsave>())
+    ///         .div_ceil(std::mem::size_of::<<kvm_xsave2 as FamStruct>::Entry>());
     ///     let mut xsave = Xsave::new(fam_size).unwrap();
     ///     unsafe { vcpu.get_xsave2(&mut xsave).unwrap() };
     /// }
@@ -981,9 +984,9 @@ impl VcpuFd {
     /// This function is unsafe because there is no guarantee `xsave` is properly allocated with
     /// the size that KVM assumes.
     ///
-    /// The required size can be retrieved via `KVM_CHECK_EXTENSION(KVM_CAP_XSAVE2)` and can vary
-    /// depending on features that have been dynamically enabled by `arch_prctl()`. Thus, any
-    /// features must not be enabled after the required size has been confirmed.
+    /// The required size in bytes can be retrieved via `KVM_CHECK_EXTENSION(KVM_CAP_XSAVE2)` and
+    /// can vary depending on features that have been dynamically enabled by `arch_prctl()`. Thus,
+    /// any features must not be enabled after the required size has been confirmed.
     ///
     /// If `xsave` is not large enough, `KVM_SET_XSAVE` copies data beyond the allocated area to
     /// the kernel, possibly causing undefined behavior.
@@ -996,14 +999,17 @@ impl VcpuFd {
     /// ```rust
     /// # extern crate kvm_ioctls;
     /// # extern crate kvm_bindings;
+    /// # extern crate vmm_sys_util;
     /// # use kvm_ioctls::{Kvm, Cap};
-    /// # use kvm_bindings::{Xsave, kvm_xsave};
+    /// # use kvm_bindings::{Xsave, kvm_xsave, kvm_xsave2};
+    /// # use vmm_sys_util::fam::FamStruct;
     /// let kvm = Kvm::new().unwrap();
     /// let vm = kvm.create_vm().unwrap();
     /// let vcpu = vm.create_vcpu(0).unwrap();
     /// let xsave_size = vm.check_extension_int(Cap::Xsave2);
     /// if xsave_size > 0 {
-    ///     let fam_size = xsave_size as usize - std::mem::size_of::<kvm_xsave>();
+    ///     let fam_size = (xsave_size as usize - std::mem::size_of::<kvm_xsave>())
+    ///         .div_ceil(std::mem::size_of::<<kvm_xsave2 as FamStruct>::Entry>());
     ///     let xsave = Xsave::new(fam_size).unwrap();
     ///     // Your `xsave` manipulation here.
     ///     unsafe { vcpu.set_xsave2(&xsave).unwrap() };
@@ -2343,6 +2349,8 @@ mod tests {
     #[cfg(target_arch = "x86_64")]
     #[test]
     fn xsave_test() {
+        use vmm_sys_util::fam::FamStruct;
+
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
         let vcpu = vm.create_vcpu(0).unwrap();
@@ -2355,7 +2363,8 @@ mod tests {
         let xsave_size = vm.check_extension_int(Cap::Xsave2);
         // only if KVM_CAP_XSAVE2 is supported
         if xsave_size > 0 {
-            let fam_size = xsave_size as usize - std::mem::size_of::<kvm_xsave>();
+            let fam_size = (xsave_size as usize - std::mem::size_of::<kvm_xsave>())
+                .div_ceil(std::mem::size_of::<<kvm_xsave2 as FamStruct>::Entry>());
             let mut xsave2 = Xsave::new(fam_size).unwrap();
             // SAFETY: Safe because `xsave2` is allocated with enough space.
             unsafe { vcpu.get_xsave2(&mut xsave2).unwrap() };
@@ -2729,328 +2738,6 @@ mod tests {
                 r => panic!("unexpected exit reason: {:?}", r),
             }
         }
-    }
-
-    #[test]
-    #[cfg(any(
-        target_arch = "x86_64",
-        target_arch = "aarch64",
-        target_arch = "riscv64"
-    ))]
-    fn test_faulty_vcpu_fd() {
-        use std::os::unix::io::{FromRawFd, IntoRawFd};
-
-        let badf_errno = libc::EBADF;
-
-        let mut faulty_vcpu_fd = VcpuFd {
-            vcpu: unsafe { File::from_raw_fd(-2) },
-            kvm_run_ptr: KvmRunWrapper {
-                kvm_run_ptr: mmap_anonymous(10).cast(),
-                mmap_size: 10,
-            },
-            coalesced_mmio_ring: None,
-        };
-
-        assert_eq!(
-            faulty_vcpu_fd.get_mp_state().unwrap_err().errno(),
-            badf_errno
-        );
-        assert_eq!(
-            faulty_vcpu_fd
-                .set_mp_state(kvm_mp_state::default())
-                .unwrap_err()
-                .errno(),
-            badf_errno
-        );
-        #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
-        assert_eq!(
-            faulty_vcpu_fd.get_vcpu_events().unwrap_err().errno(),
-            badf_errno
-        );
-        #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
-        assert_eq!(
-            faulty_vcpu_fd
-                .set_vcpu_events(&kvm_vcpu_events::default())
-                .unwrap_err()
-                .errno(),
-            badf_errno
-        );
-        assert_eq!(faulty_vcpu_fd.run().unwrap_err().errno(), badf_errno);
-
-        // Don't drop the File object, or it'll notice the file it's trying to close is
-        // invalid and abort the process.
-        let _ = faulty_vcpu_fd.vcpu.into_raw_fd();
-    }
-
-    #[test]
-    #[cfg(target_arch = "x86_64")]
-    fn test_faulty_vcpu_fd_x86_64() {
-        use std::os::unix::io::{FromRawFd, IntoRawFd};
-
-        let badf_errno = libc::EBADF;
-
-        let faulty_vcpu_fd = VcpuFd {
-            vcpu: unsafe { File::from_raw_fd(-2) },
-            kvm_run_ptr: KvmRunWrapper {
-                kvm_run_ptr: mmap_anonymous(10).cast(),
-                mmap_size: 10,
-            },
-            coalesced_mmio_ring: None,
-        };
-
-        assert_eq!(faulty_vcpu_fd.get_regs().unwrap_err().errno(), badf_errno);
-        assert_eq!(
-            faulty_vcpu_fd
-                .set_regs(&unsafe { std::mem::zeroed() })
-                .unwrap_err()
-                .errno(),
-            badf_errno
-        );
-        assert_eq!(faulty_vcpu_fd.get_sregs().unwrap_err().errno(), badf_errno);
-        assert_eq!(
-            faulty_vcpu_fd
-                .set_sregs(&unsafe { std::mem::zeroed() })
-                .unwrap_err()
-                .errno(),
-            badf_errno
-        );
-        assert_eq!(faulty_vcpu_fd.get_fpu().unwrap_err().errno(), badf_errno);
-        assert_eq!(
-            faulty_vcpu_fd
-                .set_fpu(&unsafe { std::mem::zeroed() })
-                .unwrap_err()
-                .errno(),
-            badf_errno
-        );
-        assert_eq!(
-            faulty_vcpu_fd
-                .set_cpuid2(
-                    &Kvm::new()
-                        .unwrap()
-                        .get_supported_cpuid(KVM_MAX_CPUID_ENTRIES)
-                        .unwrap()
-                )
-                .unwrap_err()
-                .errno(),
-            badf_errno
-        );
-        assert_eq!(
-            faulty_vcpu_fd.get_cpuid2(1).err().unwrap().errno(),
-            badf_errno
-        );
-        // `kvm_lapic_state` does not implement debug by default so we cannot
-        // use unwrap_err here.
-        faulty_vcpu_fd.get_lapic().unwrap_err();
-        assert_eq!(
-            faulty_vcpu_fd
-                .set_lapic(&unsafe { std::mem::zeroed() })
-                .unwrap_err()
-                .errno(),
-            badf_errno
-        );
-        assert_eq!(
-            faulty_vcpu_fd
-                .get_msrs(&mut Msrs::new(1).unwrap())
-                .unwrap_err()
-                .errno(),
-            badf_errno
-        );
-        assert_eq!(
-            faulty_vcpu_fd
-                .set_msrs(&Msrs::new(1).unwrap())
-                .unwrap_err()
-                .errno(),
-            badf_errno
-        );
-        assert_eq!(
-            faulty_vcpu_fd.get_xsave().err().unwrap().errno(),
-            badf_errno
-        );
-        assert_eq!(
-            // SAFETY: It fails before it copies data and any features are not enabled dynamically.
-            unsafe {
-                faulty_vcpu_fd
-                    .set_xsave(&kvm_xsave::default())
-                    .unwrap_err()
-                    .errno()
-            },
-            badf_errno
-        );
-        assert_eq!(faulty_vcpu_fd.get_xcrs().unwrap_err().errno(), badf_errno);
-        assert_eq!(
-            faulty_vcpu_fd
-                .set_xcrs(&kvm_xcrs::default())
-                .err()
-                .unwrap()
-                .errno(),
-            badf_errno
-        );
-        assert_eq!(
-            faulty_vcpu_fd.get_debug_regs().unwrap_err().errno(),
-            badf_errno
-        );
-        assert_eq!(
-            faulty_vcpu_fd
-                .set_debug_regs(&kvm_debugregs::default())
-                .unwrap_err()
-                .errno(),
-            badf_errno
-        );
-        assert_eq!(
-            faulty_vcpu_fd.kvmclock_ctrl().unwrap_err().errno(),
-            badf_errno
-        );
-        faulty_vcpu_fd.get_tsc_khz().unwrap_err();
-        faulty_vcpu_fd.set_tsc_khz(1000000).unwrap_err();
-        faulty_vcpu_fd.translate_gva(u64::MAX).unwrap_err();
-
-        // Don't drop the File object, or it'll notice the file it's trying to close is
-        // invalid and abort the process.
-        let _ = faulty_vcpu_fd.vcpu.into_raw_fd();
-    }
-
-    #[test]
-    #[cfg(target_arch = "aarch64")]
-    fn test_faulty_vcpu_target_aarch64() {
-        let kvm = Kvm::new().unwrap();
-        let vm = kvm.create_vm().unwrap();
-        let vcpu = vm.create_vcpu(0).unwrap();
-
-        // KVM defines valid targets as 0 to KVM_ARM_NUM_TARGETS-1, so pick a big raw number
-        // greater than that as target to be invalid
-        let kvi = kvm_vcpu_init {
-            target: 300,
-            ..Default::default()
-        };
-
-        vcpu.vcpu_init(&kvi).unwrap_err();
-    }
-
-    #[test]
-    #[cfg(target_arch = "aarch64")]
-    fn test_faulty_vcpu_fd_aarch64() {
-        use std::os::unix::io::{FromRawFd, IntoRawFd};
-
-        let badf_errno = libc::EBADF;
-
-        let faulty_vcpu_fd = VcpuFd {
-            vcpu: unsafe { File::from_raw_fd(-2) },
-            kvm_run_ptr: KvmRunWrapper {
-                kvm_run_ptr: mmap_anonymous(10).cast(),
-                mmap_size: 10,
-            },
-            coalesced_mmio_ring: None,
-        };
-
-        let device_attr = kvm_device_attr {
-            group: KVM_ARM_VCPU_PMU_V3_CTRL,
-            attr: u64::from(KVM_ARM_VCPU_PMU_V3_INIT),
-            addr: 0x0,
-            flags: 0,
-        };
-
-        let reg_id = 0x6030_0000_0010_0042;
-        let mut reg_data = 0u128.to_le_bytes();
-
-        assert_eq!(
-            faulty_vcpu_fd
-                .set_device_attr(&device_attr)
-                .unwrap_err()
-                .errno(),
-            badf_errno
-        );
-        assert_eq!(
-            faulty_vcpu_fd
-                .has_device_attr(&device_attr)
-                .unwrap_err()
-                .errno(),
-            badf_errno
-        );
-        assert_eq!(
-            faulty_vcpu_fd
-                .vcpu_init(&kvm_vcpu_init::default())
-                .unwrap_err()
-                .errno(),
-            badf_errno
-        );
-        assert_eq!(
-            faulty_vcpu_fd
-                .vcpu_finalize(&(KVM_ARM_VCPU_SVE as i32))
-                .unwrap_err()
-                .errno(),
-            badf_errno
-        );
-        assert_eq!(
-            faulty_vcpu_fd
-                .get_reg_list(&mut RegList::new(500).unwrap())
-                .unwrap_err()
-                .errno(),
-            badf_errno
-        );
-        assert_eq!(
-            faulty_vcpu_fd
-                .set_one_reg(reg_id, &reg_data)
-                .unwrap_err()
-                .errno(),
-            badf_errno
-        );
-        assert_eq!(
-            faulty_vcpu_fd
-                .get_one_reg(reg_id, &mut reg_data)
-                .unwrap_err()
-                .errno(),
-            badf_errno
-        );
-
-        // Don't drop the File object, or it'll notice the file it's trying to close is
-        // invalid and abort the process.
-        let _ = faulty_vcpu_fd.vcpu.into_raw_fd();
-    }
-
-    #[test]
-    #[cfg(target_arch = "riscv64")]
-    fn test_faulty_vcpu_fd_riscv64() {
-        use std::os::unix::io::{FromRawFd, IntoRawFd};
-
-        let badf_errno = libc::EBADF;
-
-        let faulty_vcpu_fd = VcpuFd {
-            vcpu: unsafe { File::from_raw_fd(-2) },
-            kvm_run_ptr: KvmRunWrapper {
-                kvm_run_ptr: mmap_anonymous(10).cast(),
-                mmap_size: 10,
-            },
-            coalesced_mmio_ring: None,
-        };
-
-        let reg_id = 0x8030_0000_0200_000a;
-        let mut reg_data = 0u128.to_le_bytes();
-
-        assert_eq!(
-            faulty_vcpu_fd
-                .get_reg_list(&mut RegList::new(200).unwrap())
-                .unwrap_err()
-                .errno(),
-            badf_errno
-        );
-        assert_eq!(
-            faulty_vcpu_fd
-                .set_one_reg(reg_id, &reg_data)
-                .unwrap_err()
-                .errno(),
-            badf_errno
-        );
-        assert_eq!(
-            faulty_vcpu_fd
-                .get_one_reg(reg_id, &mut reg_data)
-                .unwrap_err()
-                .errno(),
-            badf_errno
-        );
-
-        // Don't drop the File object, or it'll notice the file it's trying to close is
-        // invalid and abort the process.
-        let _ = faulty_vcpu_fd.vcpu.into_raw_fd();
     }
 
     #[test]
@@ -3467,7 +3154,7 @@ mod tests {
         let mut kvi: kvm_vcpu_init = kvm_vcpu_init::default();
         vm.get_preferred_target(&mut kvi)
             .expect("Cannot get preferred target");
-        kvi.features[0] |= 1 << KVM_ARM_VCPU_PSCI_0_2 | 1 << KVM_ARM_VCPU_PMU_V3;
+        kvi.features[0] |= (1 << KVM_ARM_VCPU_PSCI_0_2) | (1 << KVM_ARM_VCPU_PMU_V3);
         vcpu.vcpu_init(&kvi).unwrap();
         vcpu.has_device_attr(&dist_attr).unwrap();
         vcpu.set_device_attr(&dist_attr).unwrap();
@@ -3575,12 +3262,12 @@ mod tests {
             .as_slice()
             .iter()
             .find(|entry| entry.function == 1)
-            .map_or(false, |entry| entry.ecx & (1 << 5) != 0);
+            .is_some_and(|entry| entry.ecx & (1 << 5) != 0);
         let supports_vmmcall = cpuid
             .as_slice()
             .iter()
             .find(|entry| entry.function == 0x8000_0001)
-            .map_or(false, |entry| entry.ecx & (1 << 2) != 0);
+            .is_some_and(|entry| entry.ecx & (1 << 2) != 0);
         #[rustfmt::skip]
         let code = if supports_vmcall {
             [

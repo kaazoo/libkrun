@@ -21,6 +21,7 @@ use serde::de::{self, Deserialize, Deserializer, SeqAccess, Visitor};
 #[cfg(feature = "with-serde")]
 use serde::{ser::SerializeTuple, Serialize, Serializer};
 use std::fmt;
+use std::fmt::{Debug, Formatter};
 #[cfg(feature = "with-serde")]
 use std::marker::PhantomData;
 use std::mem::{self, size_of};
@@ -125,7 +126,7 @@ impl fmt::Display for Error {
 #[allow(clippy::len_without_is_empty)]
 pub unsafe trait FamStruct {
     /// The type of the FAM entries
-    type Entry: PartialEq + Copy;
+    type Entry: Copy;
 
     /// Get the FAM length
     ///
@@ -160,7 +161,6 @@ pub unsafe trait FamStruct {
 /// A wrapper for [`FamStruct`](trait.FamStruct.html).
 ///
 /// It helps in treating a [`FamStruct`](trait.FamStruct.html) similarly to an actual `Vec`.
-#[derive(Debug)]
 pub struct FamStructWrapper<T: Default + FamStruct> {
     // This variable holds the FamStruct structure. We use a `Vec<T>` to make the allocation
     // large enough while still being aligned for `T`. Only the first element of `Vec<T>`
@@ -169,6 +169,19 @@ pub struct FamStructWrapper<T: Default + FamStruct> {
     // be careful to convert the desired capacity of the `FamStructWrapper`
     // from `FamStruct::Entry` to `T` when reserving or releasing memory.
     mem_allocator: Vec<T>,
+}
+
+impl<T> Debug for FamStructWrapper<T>
+where
+    T: Default + FamStruct + Debug,
+    T::Entry: Debug,
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FamStructWrapper")
+            .field("fam_struct", &self.as_fam_struct_ref())
+            .field("entries", &self.as_fam_struct_ref().as_slice())
+            .finish()
+    }
 }
 
 impl<T: Default + FamStruct> FamStructWrapper<T> {
@@ -236,6 +249,23 @@ impl<T: Default + FamStruct> FamStructWrapper<T> {
         Ok(FamStructWrapper { mem_allocator })
     }
 
+    /// Constructs a FamStructWrapper with an empty flexible array member
+    /// from the given FamStruct header.
+    ///
+    /// # Errors
+    ///
+    /// If the length stored in the header is not 0, returns [`Error::SizeLimitExceeded`]
+    pub fn from_header(header: T) -> Result<FamStructWrapper<T>, Error> {
+        if header.len() != 0 {
+            return Err(Error::SizeLimitExceeded);
+        }
+
+        // SAFETY: We are passing an array of length 1, which corresponds to exactly
+        // the header. The length inside the header is set to 0, and there are also no
+        // further elements in the vector that would constitute any T::Entry.
+        unsafe { Ok(Self::from_raw(vec![header])) }
+    }
+
     /// Create a new FamStructWrapper from a slice of elements.
     ///
     /// # Arguments
@@ -273,6 +303,9 @@ impl<T: Default + FamStruct> FamStructWrapper<T> {
     /// This function is unsafe because the caller needs to ensure that the raw content is
     /// correctly layed out.
     pub unsafe fn from_raw(content: Vec<T>) -> Self {
+        debug_assert_ne!(content.len(), 0);
+        debug_assert!(content[0].len() <= Self::fam_len(content.len()));
+
         FamStructWrapper {
             mem_allocator: content,
         }
@@ -292,7 +325,7 @@ impl<T: Default + FamStruct> FamStructWrapper<T> {
     ///
     /// # Safety
     ///
-    /// Callers must not use the reference returned to modify the `len` filed of the underlying
+    /// Callers must not use the reference returned to modify the `len` field of the underlying
     /// `FamStruct`. See also the top-level documentation of [`FamStruct`].
     pub unsafe fn as_mut_fam_struct(&mut self) -> &mut T {
         &mut self.mem_allocator[0]
@@ -472,7 +505,10 @@ impl<T: Default + FamStruct> FamStructWrapper<T> {
     }
 }
 
-impl<T: Default + FamStruct + PartialEq> PartialEq for FamStructWrapper<T> {
+impl<T: Default + FamStruct + PartialEq> PartialEq for FamStructWrapper<T>
+where
+    T::Entry: PartialEq,
+{
     fn eq(&self, other: &FamStructWrapper<T>) -> bool {
         self.as_fam_struct_ref() == other.as_fam_struct_ref() && self.as_slice() == other.as_slice()
     }
@@ -509,12 +545,6 @@ impl<T: Default + FamStruct> Clone for FamStructWrapper<T> {
             wrapper_entries.copy_from_slice(self.as_slice());
         }
         adapter
-    }
-}
-
-impl<T: Default + FamStruct> From<Vec<T>> for FamStructWrapper<T> {
-    fn from(vec: Vec<T>) -> Self {
-        FamStructWrapper { mem_allocator: vec }
     }
 }
 
@@ -953,6 +983,21 @@ mod tests {
         }
 
         assert!(adapter == adapter.clone());
+    }
+
+    #[test]
+    fn test_from_header() {
+        let header = MockFamStruct::default();
+        let wrapper = MockFamStructWrapper::from_header(header).unwrap();
+        assert_eq!(wrapper.len(), 0);
+        assert_eq!(wrapper.as_fam_struct_ref().len, 0);
+
+        let header = MockFamStruct {
+            len: 100,
+            ..Default::default()
+        };
+        let error = MockFamStructWrapper::from_header(header);
+        assert!(matches!(error, Err(Error::SizeLimitExceeded)));
     }
 
     #[test]

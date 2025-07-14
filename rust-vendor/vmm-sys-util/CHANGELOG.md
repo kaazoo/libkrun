@@ -1,5 +1,34 @@
 # Changelog
 
+## Upcoming
+
+## v0.14.0
+
+### Changed
+
+- [[#240](https://github.com/rust-vmm/vmm-sys-util/pull/240)]: Remove
+`PartialEq` trait constraint on `Entry` in FAM module.
+
+## v0.13.0
+
+### Added
+
+- [[#230](https://github.com/rust-vmm/vmm-sys-util/pull/230)]: Introduce
+align_downwards! and align_upwards! macro to help address aligning, this
+implementation is faster than div_ceil way and more robust. 
+- [[#236](https://github.com/rust-vmm/vmm-sys-util/pull/236)]: Add a utility
+function for constructing an empty FamStructWrapper with a given header.
+
+### Changed
+
+- [[#228](https://github.com/rust-vmm/vmm-sys-util/pull/228)]: Make `Debug` impl for
+  `FamStructWrapper<T>` print out contents of the flexible array member. This causes
+  `Debug` to only be implemented if `T::Entry: Debug`.
+
+### Removed
+- [[#235](https://github.com/rust-vmm/vmm-sys-util/pull/235)]: Removed `impl
+  From<Vec<T>> for FamStructWrapper<T>`, as this was unsound.
+
 ## v0.12.1
 
 ### Changed
@@ -15,6 +44,10 @@
   bounds memory access from Rust-safe code. See the related GHSA here:
   https://github.com/rust-vmm/vmm-sys-util/security/advisories/GHSA-875g-mfp6-g7f9
   for more information.
+
+### Fixed
+- Fixed `ioctl_io*_nr` macros expanding unhygenically, requiring for example the
+  import of `ioctl_ioc_nr!` when using `ioctl_iow_nr!`.
 
 ## v0.11.2
 

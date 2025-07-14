@@ -8,6 +8,14 @@
 
 ### Removed
 
+## [0.12.0]
+
+### Added
+
+- [[323]](https://github.com/rust-vmm/kvm/pull/323) Upgrade vmm-sys-util to v0.14.0
+- Added FamStructWrapper for `kvm_irq_routing` type.
+- Added serde support for `kvm_irq_routing` and `kvm_irq_routing_entry` types.
+
 ## [0.11.1]
 
 ### Added

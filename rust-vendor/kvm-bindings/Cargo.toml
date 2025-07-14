@@ -11,7 +11,7 @@
 
 [package]
 name = "kvm-bindings"
-version = "0.11.1"
+version = "0.12.0"
 authors = ["Amazon firecracker team <firecracker-devel@amazon.com>"]
 build = false
 autolib = false
@@ -33,6 +33,14 @@ rustdoc-args = [
     "docsrs",
 ]
 
+[features]
+fam-wrappers = ["vmm-sys-util"]
+serde = [
+    "dep:serde",
+    "serde/derive",
+    "dep:zerocopy",
+]
+
 [lib]
 name = "kvm_bindings"
 path = "src/lib.rs"
@@ -43,24 +51,17 @@ features = ["derive"]
 optional = true
 
 [dependencies.vmm-sys-util]
-version = "0.12.1"
+version = "0.14.0"
 optional = true
 
 [dependencies.zerocopy]
-version = "0.7.32"
+version = "0.8.23"
 features = ["derive"]
 optional = true
 
 [dev-dependencies.bincode]
-version = "1.3.3"
+version = "2.0.1"
+features = ["serde"]
 
 [dev-dependencies.serde_json]
 version = "1.0.125"
-
-[features]
-fam-wrappers = ["vmm-sys-util"]
-serde = [
-    "dep:serde",
-    "serde/derive",
-    "dep:zerocopy",
-]

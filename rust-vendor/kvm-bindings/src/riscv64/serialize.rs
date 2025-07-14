@@ -3,11 +3,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use bindings::{
-    kvm_mp_state, kvm_one_reg, kvm_riscv_aia_csr, kvm_riscv_config, kvm_riscv_core, kvm_riscv_csr,
-    kvm_riscv_sbi_sta, kvm_riscv_smstateen_csr, kvm_riscv_timer, user_regs_struct,
+    kvm_irq_routing, kvm_irq_routing_entry, kvm_irq_routing_entry__bindgen_ty_1,
+    kvm_irq_routing_msi__bindgen_ty_1, kvm_mp_state, kvm_one_reg, kvm_riscv_aia_csr,
+    kvm_riscv_config, kvm_riscv_core, kvm_riscv_csr, kvm_riscv_sbi_sta, kvm_riscv_smstateen_csr,
+    kvm_riscv_timer, user_regs_struct,
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use zerocopy::{transmute, AsBytes};
+use zerocopy::{transmute, IntoBytes};
 
 serde_impls! {
     kvm_mp_state,
@@ -19,7 +21,33 @@ serde_impls! {
     kvm_riscv_aia_csr,
     kvm_riscv_smstateen_csr,
     kvm_riscv_timer,
-    kvm_riscv_sbi_sta
+    kvm_riscv_sbi_sta,
+    kvm_irq_routing,
+    kvm_irq_routing_entry
+}
+
+// SAFETY: zerocopy's derives explicitly disallow deriving for unions where
+// the fields have different sizes, due to the smaller fields having padding.
+// Miri however does not complain about these implementations (e.g. about
+// reading the "padding" for one union field as valid data for a bigger one)
+unsafe impl IntoBytes for kvm_irq_routing_msi__bindgen_ty_1 {
+    fn only_derive_is_allowed_to_implement_this_trait()
+    where
+        Self: Sized,
+    {
+    }
+}
+
+// SAFETY: zerocopy's derives explicitly disallow deriving for unions where
+// the fields have different sizes, due to the smaller fields having padding.
+// Miri however does not complain about these implementations (e.g. about
+// reading the "padding" for one union field as valid data for a bigger one)
+unsafe impl IntoBytes for kvm_irq_routing_entry__bindgen_ty_1 {
+    fn only_derive_is_allowed_to_implement_this_trait()
+    where
+        Self: Sized,
+    {
+    }
 }
 
 #[cfg(test)]
@@ -28,9 +56,11 @@ mod tests {
     use serde::{Deserialize, Serialize};
 
     fn is_serde<T: Serialize + for<'de> Deserialize<'de> + Default>() {
-        let serialized = bincode::serialize(&T::default()).unwrap();
-        let deserialized = bincode::deserialize::<T>(serialized.as_ref()).unwrap();
-        let serialized_again = bincode::serialize(&deserialized).unwrap();
+        let config = bincode::config::standard();
+        let serialized = bincode::serde::encode_to_vec(T::default(), config).unwrap();
+        let (deserialized, _): (T, _) =
+            bincode::serde::decode_from_slice(&serialized, config).unwrap();
+        let serialized_again = bincode::serde::encode_to_vec(&deserialized, config).unwrap();
         // Compare the serialized state after a roundtrip, to work around issues with
         // bindings not implementing `PartialEq`.
         assert_eq!(serialized, serialized_again);
@@ -45,12 +75,12 @@ mod tests {
         //
         // #[cfg_attr(
         //     feature = "serde",
-        //     derive(zerocopy::AsBytes, zerocopy::FromBytes, zerocopy::FromZeroes)
+        //     derive(zerocopy::IntoBytes, zerocopy::Immutable, zerocopy::FromBytes)
         // )]
         //
         // to all structures causing compilation errors (we need the zerocopy traits, as the
         // `Serialize` and `Deserialize` implementations are provided by the `serde_impls!` macro
-        // above, which implements serialization based on zerocopy's `FromBytes` and `AsBytes`
+        // above, which implements serialization based on zerocopy's `FromBytes` and `IntoBytes`
         // traits that it expects to be derived).
         //
         // NOTE: This only include "top-level" items, and does not list out bindgen-anonymous types
@@ -69,12 +99,16 @@ mod tests {
         is_serde::<kvm_riscv_smstateen_csr>();
         is_serde::<kvm_riscv_timer>();
         is_serde::<kvm_riscv_sbi_sta>();
+        is_serde::<kvm_irq_routing>();
+        is_serde::<kvm_irq_routing_entry>();
     }
 
     fn is_serde_json<T: Serialize + for<'de> Deserialize<'de> + Default>() {
-        let serialized = serde_json::to_string(&T::default()).unwrap();
-        let deserialized = serde_json::from_str::<T>(serialized.as_ref()).unwrap();
-        let serialized_again = serde_json::to_string(&deserialized).unwrap();
+        let config = bincode::config::standard();
+        let serialized = bincode::serde::encode_to_vec(T::default(), config).unwrap();
+        let (deserialized, _): (T, _) =
+            bincode::serde::decode_from_slice(&serialized, config).unwrap();
+        let serialized_again = bincode::serde::encode_to_vec(&deserialized, config).unwrap();
         // Compare the serialized state after a roundtrip, to work around issues with
         // bindings not implementing `PartialEq`.
         assert_eq!(serialized, serialized_again);
@@ -92,5 +126,7 @@ mod tests {
         is_serde_json::<kvm_riscv_smstateen_csr>();
         is_serde_json::<kvm_riscv_timer>();
         is_serde_json::<kvm_riscv_sbi_sta>();
+        is_serde_json::<kvm_irq_routing>();
+        is_serde_json::<kvm_irq_routing_entry>();
     }
 }

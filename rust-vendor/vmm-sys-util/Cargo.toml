@@ -12,8 +12,14 @@
 [package]
 edition = "2021"
 name = "vmm-sys-util"
-version = "0.12.1"
+version = "0.14.0"
 authors = ["Intel Virtualization Team <vmm-maintainers@intel.com>"]
+build = false
+autolib = false
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
 description = "A system utility set"
 readme = "README.md"
 keywords = ["utils"]
@@ -26,6 +32,16 @@ rustdoc-args = [
     "--cfg",
     "docsrs",
 ]
+
+[features]
+with-serde = [
+    "serde",
+    "serde_derive",
+]
+
+[lib]
+name = "vmm_sys_util"
+path = "src/lib.rs"
 
 [dependencies.libc]
 version = "0.2.39"
@@ -44,11 +60,5 @@ version = "1.3.3"
 [dev-dependencies.serde_json]
 version = "1.0.9"
 
-[features]
-with-serde = [
-    "serde",
-    "serde_derive",
-]
-
-[target."cfg(any(target_os = \"linux\", target_os = \"android\"))".dependencies.bitflags]
+[target.'cfg(any(target_os = "linux", target_os = "android"))'.dependencies.bitflags]
 version = "1.0"

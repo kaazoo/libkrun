@@ -74,6 +74,32 @@ impl PartialEq for kvm_msrs {
 /// [FamStructWrapper](../vmm_sys_util/fam/struct.FamStructWrapper.html).
 pub type Msrs = FamStructWrapper<kvm_msrs>;
 
+// Implement the FamStruct trait for kvm_irq_routing
+generate_fam_struct_impl!(
+    kvm_irq_routing,
+    kvm_irq_routing_entry,
+    entries,
+    u32,
+    nr,
+    1024
+);
+
+// Implement the PartialEq trait for kvm_irq_routing.
+impl PartialEq for kvm_irq_routing {
+    fn eq(&self, other: &kvm_irq_routing) -> bool {
+        // No need to call entries's eq, FamStructWrapper's PartialEq will do it for you
+        self.nr == other.nr && self.flags == other.flags
+    }
+}
+
+/// Wrapper over the `kvm_irq_routing` structure.
+///
+/// The `kvm_irq_routing` structure contains a flexible array member. For details check the [KVM
+/// API](https://docs.kernel.org/virt/kvm/api.html#kvm-set-gsi-routing) documentation on
+/// `kvm_irq_routing`. To provide safe access to the array elements, this type is implemented using
+/// [FamStructWrapper](../vmm_sys_util/fam/struct.FamStructWrapper.html).
+pub type KvmIrqRouting = FamStructWrapper<kvm_irq_routing>;
+
 // Implement the FamStruct trait for kvm_msr_list.
 generate_fam_struct_impl!(kvm_msr_list, u32, indices, u32, nmsrs, KVM_MAX_MSR_ENTRIES);
 
@@ -101,16 +127,25 @@ pub type MsrList = FamStructWrapper<kvm_msr_list>;
 #[derive(Debug, Default)]
 #[cfg_attr(
     feature = "serde",
-    derive(zerocopy::AsBytes, zerocopy::FromBytes, zerocopy::FromZeroes)
+    derive(zerocopy::IntoBytes, zerocopy::Immutable, zerocopy::FromBytes)
 )]
 pub struct kvm_xsave2 {
-    /// The length, in bytes, of the FAM in [`kvm_xsave`].
+    /// The length, in units of sizeof::<__u32>(), of the FAM in [`kvm_xsave`].
     ///
     /// Note that `KVM_CHECK_EXTENSION(KVM_CAP_XSAVE2)` returns the size of the entire
     /// `kvm_xsave` structure, e.g. the sum of header and FAM. Thus, this `len` field
-    /// is equal to `KVM_CHECK_EXTENSION(KVM_CAP_XSAVE2) - 4096`.
+    /// is equal to
+    /// ```norun
+    /// (KVM_CHECK_EXTENSION(KVM_CAP_XSAVE2) - sizeof::<kvm_xsave>()).div_ceil(sizeof::<__u32>())
+    /// ```
     pub len: usize,
     pub xsave: kvm_xsave,
+}
+
+impl From<kvm_xsave> for kvm_xsave2 {
+    fn from(xsave: kvm_xsave) -> Self {
+        kvm_xsave2 { len: 0, xsave }
+    }
 }
 
 // SAFETY:
@@ -157,13 +192,15 @@ unsafe impl FamStruct for kvm_xsave2 {
 /// cannot happen in the [`FamStruct::len`] trait method. To work around this, we define a wrapper
 /// struct that caches the length of a previous `KVM_CHECK_EXTENSION(KVM_CAP_XSAVE2)` call,
 /// and implement [`FamStruct`] for this wrapper. Then in kvm-ioctls, we can expose a function
-/// that first queries `KVM_CAP_XSAVE2`, then invokes [`KVM_GET_XSAVE2`] to retrives the `kvm_xsave`
-/// structure, and finally combine them into the [`kvm_xsave2`] helper structure to be managed as a
-/// `FamStruct`.
+/// that first queries `KVM_CAP_XSAVE2`, then invokes [`KVM_GET_XSAVE2`] to retrieves the
+/// `kvm_xsave` structure, and finally combine them into the [`kvm_xsave2`] helper structure to be
+/// managed as a `FamStruct`.
 pub type Xsave = FamStructWrapper<kvm_xsave2>;
 
 #[cfg(test)]
 mod tests {
+    use crate::KvmIrqRouting;
+
     use super::{CpuId, MsrList, Msrs, Xsave};
     use x86_64::bindings::kvm_cpuid_entry2;
 
@@ -227,5 +264,12 @@ mod tests {
         assert_eq!(wrapper.as_slice().len(), 1);
         assert_eq!(wrapper.as_fam_struct_ref().len(), 1);
         assert_eq!(wrapper.as_fam_struct_ref().len, 1);
+    }
+    #[test]
+    fn test_kvm_irq_routing() {
+        let wrapper = KvmIrqRouting::new(1).unwrap();
+        assert_eq!(wrapper.as_slice().len(), 1);
+        assert_eq!(wrapper.as_fam_struct_ref().len(), 1);
+        assert_eq!(wrapper.as_fam_struct_ref().nr, 1);
     }
 }

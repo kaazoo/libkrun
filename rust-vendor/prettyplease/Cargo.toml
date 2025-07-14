@@ -13,7 +13,7 @@
 edition = "2021"
 rust-version = "1.62"
 name = "prettyplease"
-version = "0.2.32"
+version = "0.2.33"
 authors = ["David Tolnay <dtolnay@gmail.com>"]
 build = "build.rs"
 links = "prettyplease02"

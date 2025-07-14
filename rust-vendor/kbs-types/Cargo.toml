@@ -12,9 +12,10 @@
 [package]
 edition = "2021"
 name = "kbs-types"
-version = "0.8.0"
+version = "0.11.0"
 authors = ["Sergio Lopez <slp@redhat.com>"]
 build = false
+autolib = false
 autobins = false
 autoexamples = false
 autotests = false
@@ -24,9 +25,29 @@ readme = "README.md"
 license = "Apache-2.0"
 repository = "https://github.com/virtee/kbs-types"
 
+[features]
+alloc = [
+    "base64/alloc",
+    "serde/alloc",
+    "serde_json/alloc",
+]
+default = ["std"]
+std = [
+    "base64/std",
+    "serde/std",
+    "serde_json/std",
+    "thiserror/std",
+]
+tee-sev = ["sev"]
+tee-snp = ["sev"]
+
 [lib]
 name = "kbs_types"
 path = "src/lib.rs"
+
+[dependencies.base64]
+version = "0.22.1"
+default-features = false
 
 [dependencies.serde]
 version = "1.0"
@@ -38,9 +59,13 @@ version = "1.0"
 default-features = false
 
 [dependencies.sev]
-version = "4.0.0"
+version = "6.0.0"
 features = ["openssl"]
 optional = true
+
+[dependencies.thiserror]
+version = "2.0.3"
+default-features = false
 
 [dev-dependencies.codicon]
 version = "3.0.0"
@@ -50,16 +75,3 @@ version = "0.4"
 
 [dev-dependencies.procfs]
 version = "0.15"
-
-[features]
-alloc = [
-    "serde/alloc",
-    "serde_json/alloc",
-]
-default = ["std"]
-std = [
-    "serde/std",
-    "serde_json/std",
-]
-tee-sev = ["sev"]
-tee-snp = ["sev"]

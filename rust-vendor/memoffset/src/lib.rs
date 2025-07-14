@@ -32,11 +32,9 @@
 //!     a: u32
 //! }
 //!
-//! fn main() {
-//!     assert_eq!(offset_of!(HelpMeIAmTrappedInAStructFactory, a), 15);
-//!     assert_eq!(span_of!(HelpMeIAmTrappedInAStructFactory, a), 15..19);
-//!     assert_eq!(span_of!(HelpMeIAmTrappedInAStructFactory, help_me_before_they_ .. a), 0..15);
-//! }
+//! assert_eq!(offset_of!(HelpMeIAmTrappedInAStructFactory, a), 15);
+//! assert_eq!(span_of!(HelpMeIAmTrappedInAStructFactory, a), 15..19);
+//! assert_eq!(span_of!(HelpMeIAmTrappedInAStructFactory, help_me_before_they_ .. a), 0..15);
 //! ```
 //!
 //! This functionality can be useful, for example, for checksum calculations:
@@ -56,10 +54,6 @@
 //! ```
 
 #![no_std]
-#![cfg_attr(
-    feature = "unstable_const",
-    feature(const_ptr_offset_from, const_refs_to_cell)
-)]
 
 #[macro_use]
 #[cfg(doctests)]

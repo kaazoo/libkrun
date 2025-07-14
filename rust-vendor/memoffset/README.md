@@ -7,16 +7,19 @@ C-Like `offset_of` functionality for Rust structs.
 Introduces the following macros:
  * `offset_of!` for obtaining the offset of a member of a struct.
  * `offset_of_tuple!` for obtaining the offset of a member of a tuple. (Requires Rust 1.20+)
+ * `offset_of_union!` for obtaining the offset of a member of a union.
  * `span_of!` for obtaining the range that a field, or fields, span.
 
 `memoffset` works under `no_std` environments.
+
+If you're using a rustc version greater or equal to 1.77, this crate's `offset_of!()` macro simply forwards to `core::mem::offset_of!()`.
 
 ## Usage ##
 Add the following dependency to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-memoffset = "0.7"
+memoffset = "0.9"
 ```
 
 These versions will compile fine with rustc versions greater or equal to 1.19.
@@ -45,21 +48,8 @@ fn main() {
 }
 ```
 
-## Feature flags ##
+## Usage in constants ##
+`memoffset` has support for compile-time `offset_of!` on rust>=1.65.
 
-### Usage in constants ###
-`memoffset` has **experimental** support for compile-time `offset_of!` on a nightly compiler.
-
-In order to use it, you must enable the `unstable_const` crate feature and several compiler features.
-
-Cargo.toml:
-```toml
-[dependencies.memoffset]
-version = "0.7"
-features = ["unstable_const"]
-```
-
-Your crate root: (`lib.rs`/`main.rs`)
-```rust,ignore
-#![feature(const_ptr_offset_from, const_refs_to_cell)]
-```
+On versions below 1.77, this is an incomplete implementation with one caveat:
+Due to dependence on [`#![feature(const_refs_to_cell)]`](https://github.com/rust-lang/rust/issues/80384), you cannot get the offset of a `Cell` field in a const-context.
