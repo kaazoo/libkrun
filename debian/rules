@@ -19,9 +19,6 @@ vendor-tarball-sanity-check:
 	  exit 1; \
 	fi
 
-# for some reason MAKEFLAGS was set to "w" in sub make execution
-MAKEFLAGS += --no-print-directory GPU=1 VIRGL_RESOURCE_MAP2=1 BLK=1 NET=1 SND=1
-
 # use specific rustc path
 export RUSTC:=/usr/bin/rustc-1.82
 
@@ -62,6 +59,9 @@ override_dh_auto_configure:
 	sed -i 's/usr\/local/usr/' Makefile
 	sed -i 's/LIBDIR_Linux = lib64$$/LIBDIR_Linux = lib\/$(DEB_HOST_MULTIARCH)/' Makefile
 	dh_auto_configure
+
+override_dh_auto_build:
+	dh_auto_build -- GPU=1 VIRGL_RESOURCE_MAP2=1 BLK=1 NET=1 SND=1
 
 override_dh_dwz:
 	true

@@ -1,3 +1,4 @@
 0001-Make-cargo-binary-path-configurable.patch
 0002-Exclude-rust-vendor-from-workspace.patch
-0003-Fix-target-directory-path-it-contains-the-toolchain-.patch
+0003_disable_tests
+0004_fix_release_path

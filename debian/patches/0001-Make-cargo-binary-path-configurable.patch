@@ -8,7 +8,7 @@ Subject: Make cargo binary path configurable
 
 --- a/Makefile
 +++ b/Makefile
-@@ -87,7 +87,7 @@
+@@ -92,7 +92,7 @@
  endif
  
  $(LIBRARY_RELEASE_$(OS)): $(INIT_BINARY)
@@ -17,8 +17,8 @@ Subject: Make cargo binary path configurable
  ifeq ($(SEV),1)
  	mv target/release/libkrun.so target/release/$(KRUN_BASE_$(OS))
  endif
-@@ -104,7 +104,7 @@
- endif
+@@ -108,7 +108,7 @@
+ 	cp target/release/$(KRUN_BASE_$(OS)) $(LIBRARY_RELEASE_$(OS))
  
  $(LIBRARY_DEBUG_$(OS)): $(INIT_BINARY)
 -	cargo build $(FEATURE_FLAGS)
@@ -26,9 +26,15 @@ Subject: Make cargo binary path configurable
  ifeq ($(SEV),1)
  	mv target/debug/libkrun.so target/debug/$(KRUN_BASE_$(OS))
  endif
-@@ -135,4 +135,4 @@
+@@ -135,9 +135,9 @@
  
  clean:
  	rm -f $(INIT_BINARY)
 -	cargo clean
 +	$(CARGO) clean
+ 	rm -rf test-prefix
+-	cd tests; cargo clean
++	cd tests; $(CARGO) clean
+ 
+ test: $(LIBRARY_RELEASE_$(OS))
+ 	mkdir -p test-prefix
