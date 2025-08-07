@@ -42,6 +42,7 @@ Package: libkrun1
 Section: libs
 Architecture: arm64
 Depends:
+ libkrunfw4,
  ${shlibs:Depends},
  ${misc:Depends},
 Pre-Depends: ${misc:Pre-Depends}
